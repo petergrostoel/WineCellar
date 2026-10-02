@@ -564,42 +564,152 @@ document.addEventListener("click", (e) => {
 // ============================================================
 
 function renderTimeline() {
+  renderAreaChart();
+  renderWindows();
+  renderExpired();
+}
+
+// --- Kurve: drikkeklare flasker pr. år (grøn), med gule og røde ovenpå ---
+
+const AREA_SERIES = [
+  ["green", "Drikkeklar"],
+  ["yellow", "Snart klar / sidste år"],
+  ["red", "Ikke klar endnu"],
+];
+
+function yearCounts(stock, y) {
+  const c = { green: 0, yellow: 0, red: 0 };
+  for (const w of stock) {
+    const k = windowStatus(w, y).key;
+    if (k in c) c[k] += w.quantity;
+  }
+  return c;
+}
+
+function renderAreaChart() {
+  const el = $("#area-chart");
   const year = thisYear();
-  const stock = inStock();
+  const stock = inStock().filter((w) => w.drinkFrom || w.drinkTo);
+  $("#area-legend").innerHTML = AREA_SERIES
+    .map(([k, t]) => `<span><span class="dot ${k}"></span>${t}</span>`).join("");
+  if (!stock.length) {
+    el.innerHTML = `<p class="empty">Ingen vine med drikkevindue endnu.</p>`;
+    return;
+  }
 
-  // --- Søjlediagram: flasker hvis vindue slutter pr. år ---
+  const lastYear = Math.min(year + 30, Math.max(year + 8, ...stock.map((w) => (w.drinkTo ?? year) + 1)));
   const years = [];
-  for (let y = year; y <= year + 11; y++) years.push(y);
-  const counts = years.map((y) =>
-    stock.filter((w) => w.drinkTo && (y === year ? w.drinkTo <= y : w.drinkTo === y))
-      .reduce((s, w) => s + w.quantity, 0));
-  const max = Math.max(1, ...counts);
-  $("#year-chart").innerHTML = years.map((y, i) => `
-    <div class="yc-col" title="${y}: ${counts[i]} flasker${y === year ? " (inkl. over vinduet)" : ""}">
-      ${counts[i] ? `<span class="yc-val">${counts[i]}</span>` : ""}
-      <div class="yc-bar ${counts[i] ? "" : "zero"}" style="height:${(counts[i] / max) * 100}%"></div>
-    </div>`).join("");
-  const labels = years.map((y) => `<span class="${y === year ? "now" : ""}">${y === year ? "Nu" : "'" + String(y).slice(2)}</span>`).join("");
-  const old = $(".yc-labels");
-  if (old) old.remove();
-  $("#year-chart").insertAdjacentHTML("afterend", `<div class="yc-labels">${labels}</div>`);
+  for (let y = year; y <= lastYear; y++) years.push(y);
+  const data = years.map((y) => ({ year: y, ...yearCounts(stock, y) }));
 
-  // --- Drikkevinduer pr. vin ---
-  $("#legend").innerHTML = [
-    ["green", "Ideel"], ["yellow", "Snart klar / sidste år"], ["red", "Ikke klar"], ["grey", "Over vinduet"],
-  ].map(([k, t]) => `<span><span class="dot ${k}"></span>${t}</span>`).join("");
+  const W = Math.max(280, el.clientWidth || 340);
+  const H = 190;
+  const m = { l: 30, r: 10, t: 10, b: 24 };
+  const maxTotal = Math.max(1, ...data.map((d) => d.green + d.yellow + d.red));
+  const yMax = maxTotal <= 4 ? 4 : Math.ceil(maxTotal / 4) * 4;
+  const stepX = (W - m.l - m.r) / (years.length - 1);
+  const x = (i) => m.l + i * stepX;
+  const yPx = (v) => H - m.b - (v / yMax) * (H - m.t - m.b);
 
-  const withWindow = stock.filter((w) => w.drinkFrom || w.drinkTo)
-    .sort((a, b) => (a.drinkTo ?? 9999) - (b.drinkTo ?? 9999) || (a.drinkFrom ?? 0) - (b.drinkFrom ?? 0));
-  const without = stock.filter((w) => !w.drinkFrom && !w.drinkTo);
+  // Lag: grøn fra 0, gul oven på grøn, rød øverst.
+  const band = (lo, hi) => {
+    const top = data.map((d, i) => `${x(i).toFixed(1)},${yPx(hi(d)).toFixed(1)}`);
+    const bottom = data.map((d, i) => `${x(i).toFixed(1)},${yPx(lo(d)).toFixed(1)}`).reverse();
+    return `M${top.join("L")}L${bottom.join("L")}Z`;
+  };
+  const g = (d) => d.green;
+  const gy = (d) => d.green + d.yellow;
+  const all = (d) => d.green + d.yellow + d.red;
 
-  if (!withWindow.length) {
+  const yTicks = [0, yMax / 2, yMax];
+  const labelEvery = Math.ceil(years.length / 7);
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Drikkeklare flasker pr. år fra ${year} til ${lastYear}">
+      ${yTicks.map((v) => `
+        <line class="grid-line" x1="${m.l}" x2="${W - m.r}" y1="${yPx(v)}" y2="${yPx(v)}"></line>
+        <text class="axis-text" x="${m.l - 6}" y="${yPx(v) + 4}" text-anchor="end">${v}</text>`).join("")}
+      <path class="area-red" d="${band(gy, all)}"></path>
+      <path class="area-yellow" d="${band(g, gy)}"></path>
+      <path class="area-green" d="${band(() => 0, g)}"></path>
+      <polyline class="line-green" points="${data.map((d, i) => `${x(i).toFixed(1)},${yPx(d.green).toFixed(1)}`).join(" ")}"></polyline>
+      <line class="base-line" x1="${m.l}" x2="${W - m.r}" y1="${yPx(0)}" y2="${yPx(0)}"></line>
+      ${years.map((y, i) => i % labelEvery === 0 ? `<text class="axis-text" x="${x(i)}" y="${H - 6}" text-anchor="middle">${y}</text>` : "").join("")}
+      <line class="cursor" id="area-cursor" y1="${m.t}" y2="${yPx(0)}" visibility="hidden"></line>
+      <circle class="cursor-dot" id="area-dot" r="5" visibility="hidden"></circle>
+      <rect x="${m.l - 10}" y="0" width="${W - m.l - m.r + 20}" height="${H}" fill="transparent" id="area-hit"></rect>
+    </svg>
+    <div class="area-tip" id="area-tip" hidden></div>`;
+
+  // Tryk/hover: vis tal for nærmeste år.
+  const svg = $("svg", el);
+  const show = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((evt.clientX - rect.left) / rect.width) * W;
+    const i = Math.max(0, Math.min(years.length - 1, Math.round((px - m.l) / stepX)));
+    const d = data[i];
+    $("#area-cursor").setAttribute("x1", x(i));
+    $("#area-cursor").setAttribute("x2", x(i));
+    $("#area-cursor").setAttribute("visibility", "visible");
+    $("#area-dot").setAttribute("cx", x(i));
+    $("#area-dot").setAttribute("cy", yPx(d.green));
+    $("#area-dot").setAttribute("visibility", "visible");
+    const tip = $("#area-tip");
+    tip.innerHTML = `<strong>${d.year}</strong>` + AREA_SERIES
+      .map(([k, t]) => `<div><span class="dot ${k}"></span>${t}: <b>${d[k]}</b> fl.</div>`).join("");
+    tip.hidden = false;
+    const scale = rect.width / W;
+    const left = x(i) * scale;
+    const tipW = tip.offsetWidth;
+    tip.style.left = `${Math.min(Math.max(0, left - tipW / 2), rect.width - tipW)}px`;
+    tip.style.top = `${-tip.offsetHeight - 6}px`;
+  };
+  const hide = () => {
+    $("#area-tip").hidden = true;
+    $("#area-cursor").setAttribute("visibility", "hidden");
+    $("#area-dot").setAttribute("visibility", "hidden");
+  };
+  const hit = $("#area-hit");
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerdown", show);
+  hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+}
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (currentTab === "timeline") renderAreaChart(); }, 150);
+});
+
+// --- Drikkevinduer pr. vin, fra i år og frem ---
+
+function renderWindows() {
+  const year = thisYear();
+  const stock = inStock().filter((w) => (w.drinkFrom || w.drinkTo) && windowStatus(w).key !== "grey");
+  const without = inStock().filter((w) => !w.drinkFrom && !w.drinkTo);
+
+  if (!stock.length) {
     $("#timeline").innerHTML = `<p class="empty">Ingen vine med drikkevindue endnu.</p>`;
     return;
   }
 
-  const minY = Math.max(year - 3, Math.min(year, ...withWindow.map((w) => w.drinkFrom ?? year)));
-  const maxY = Math.min(year + 30, Math.max(year + 5, ...withWindow.map((w) => (w.drinkTo ?? year) + 1)));
+  // Klar nu: sorteret efter hvor stor en del af vinduet der er tilbage –
+  // tættest på at udløbe øverst, lige blevet klar nederst.
+  // Derefter dem der endnu ikke er klar, efter hvornår de bliver det.
+  const ready = (w) => !w.drinkFrom || w.drinkFrom <= year;
+  const leftShare = (w) => {
+    if (!w.drinkTo) return 1;
+    const from = w.drinkFrom ?? year;
+    return (w.drinkTo - year + 1) / (w.drinkTo - from + 1);
+  };
+  const sorted = [
+    ...stock.filter(ready).sort((a, b) =>
+      leftShare(a) - leftShare(b) || (a.drinkTo ?? 9999) - (b.drinkTo ?? 9999)),
+    ...stock.filter((w) => !ready(w)).sort((a, b) => a.drinkFrom - b.drinkFrom || (a.drinkTo ?? 9999) - (b.drinkTo ?? 9999)),
+  ];
+
+  const minY = year;
+  const maxY = Math.min(year + 30, Math.max(year + 6, ...stock.map((w) => (w.drinkTo ?? year) + 1)));
   const span = maxY - minY;
   const pos = (y) => ((y - minY) / span) * 100;
   const step = span > 20 ? 10 : 5;
@@ -608,7 +718,7 @@ function renderTimeline() {
   const grid = ticks.map((y) => `<span class="tl-grid" style="left:${pos(y)}%"></span>`).join("")
     + `<span class="tl-now" style="left:${pos(year + 0.5)}%"></span>`;
 
-  const rows = withWindow.map((w) => {
+  const rows = sorted.map((w) => {
     const s = windowStatus(w);
     const from = w.drinkFrom ?? minY;
     const to = (w.drinkTo ?? maxY - 1) + 1; // vinduet dækker hele det sidste år
@@ -617,7 +727,7 @@ function renderTimeline() {
     const cls = [s.key, from < minY || !w.drinkFrom ? "open-start" : "", to > maxY || !w.drinkTo ? "open-end" : ""].join(" ");
     return `
       <div class="tl-row" data-id="${w.id}" title="${escapeHtml(wineTitle(w))}: ${windowText(w)} – ${escapeHtml(s.label)}">
-        <div class="tl-name"><span>${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}</span><small>${windowText(w)} · ${w.quantity} fl.</small></div>
+        <div class="tl-name"><span><span class="dot ${s.key}" style="display:inline-block"></span> ${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}</span><small>${windowText(w)} · ${w.quantity} fl.</small></div>
         <div class="tl-track">${grid}<span class="tl-bar ${cls}" style="left:${left}%;width:${Math.max(1.5, right - left)}%"></span></div>
       </div>`;
   }).join("");
@@ -626,6 +736,59 @@ function renderTimeline() {
   $("#timeline").innerHTML = axis + rows +
     (without.length ? `<p class="muted small-text" style="margin-top:12px">Uden drikkevindue: ${without.map((w) => escapeHtml(wineTitle(w))).join(", ")}</p>` : "");
 }
+
+// --- Over vinduet: vine der bør tjekkes eller kasseres ---
+
+const expiredWines = () => inStock()
+  .filter((w) => windowStatus(w).key === "grey")
+  .sort((a, b) => a.drinkTo - b.drinkTo);
+
+function renderExpired() {
+  const list = expiredWines();
+  $("#expired-empty").hidden = list.length > 0;
+  $("#expired-actions").hidden = list.length === 0;
+  $("#expired-list").innerHTML = list.map((w) => `
+    <li class="wine-item" data-id="${w.id}">
+      ${thumbHtml(w)}
+      <div>
+        <div class="title">${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}</div>
+        <div class="meta">Vindue til ${w.drinkTo} · ${thisYear() - w.drinkTo} år over${w.location ? ` · 📍 ${escapeHtml(w.location)}` : ""}</div>
+        <div class="expired-actions" style="margin-top:6px">
+          <button type="button" class="small danger" data-discard="${w.id}">Kassér ${w.quantity} fl.</button>
+        </div>
+      </div>
+      <div class="qty-badge">${w.quantity}<small>fl.</small></div>
+    </li>`).join("");
+  refreshThumbs($("#expired-list"));
+}
+
+$("#expired-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-discard]");
+  if (!btn) return;
+  e.stopPropagation();
+  const w = wines.find((x) => x.id === btn.dataset.discard);
+  if (!w || !confirm(`Kassér ${w.quantity} fl. ${wineTitle(w)} ${w.vintage ?? ""}? De fjernes fra beholdningen.`)) return;
+  w.quantity = 0;
+  markChanged(w.id);
+  save();
+  toast("Kasseret og fjernet fra beholdningen");
+});
+
+$("#expired-share").addEventListener("click", async () => {
+  const lines = expiredWines().map((w) =>
+    `• ${wineTitle(w)} ${w.vintage ?? ""} – ${w.quantity} fl. – vindue til ${w.drinkTo}${w.location ? ` – ${w.location}` : ""}`);
+  const text = `Vine over drikkevinduet (${new Date().toLocaleDateString("da-DK")}):\n${lines.join("\n")}`;
+  try {
+    if (navigator.share) await navigator.share({ title: "Vine over drikkevinduet", text });
+    else {
+      await navigator.clipboard.writeText(text);
+      toast("Listen er kopieret");
+    }
+  } catch (err) {
+    if (err?.name !== "AbortError") toast("Listen kunne ikke deles");
+  }
+});
+
 
 // ============================================================
 // Historik (drukket)

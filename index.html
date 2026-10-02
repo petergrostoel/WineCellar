@@ -89,14 +89,24 @@
       <!-- Tidslinje -->
       <section id="tab-timeline" class="tab" hidden>
         <section class="block">
-          <h2>Flasker der skal drikkes – pr. år</h2>
-          <p class="muted small-text">Antal flasker hvis drikkevindue slutter det pågældende år.</p>
-          <div id="year-chart" class="year-chart"></div>
+          <h2>Drikkeklare flasker pr. år</h2>
+          <p class="muted small-text">Tryk på kurven for at se tallene for et år.</p>
+          <div class="legend" id="area-legend"></div>
+          <div id="area-chart" class="area-chart"></div>
         </section>
         <section class="block">
           <h2>Drikkevinduer</h2>
-          <div class="legend" id="legend"></div>
+          <p class="muted small-text">Øverst: klar og tættest på at udløbe. Nederst: endnu ikke klar.</p>
           <div id="timeline" class="timeline"></div>
+        </section>
+        <section class="block" id="expired-block">
+          <h2>Over vinduet – bør tjekkes</h2>
+          <p class="muted small-text">Vine hvis drikkevindue er udløbet. Smag på dem eller kassér dem.</p>
+          <ul id="expired-list" class="wine-list"></ul>
+          <p id="expired-empty" class="empty" hidden>Ingen vine er over deres drikkevindue. 👍</p>
+          <div class="actions" id="expired-actions" style="margin-top:10px">
+            <button type="button" class="small" id="expired-share">Del / kopiér listen</button>
+          </div>
         </section>
       </section>
 

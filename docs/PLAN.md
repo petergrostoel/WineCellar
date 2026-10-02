@@ -41,8 +41,9 @@ Vægtningen kombinerer:
 Er der ingen hvidvin i top 5, foreslås den bedste hvidvin som nr. 6.
 
 ### 5. Tidslinje
-- Søjlediagram: hvor mange flasker der skal drikkes senest hvert år
-- Drikkevinduet for hver vin som en vandret bjælke i statusfarven, med en streg for "nu"
+- Kurve fra i år og frem: antal drikkeklare flasker pr. år (grønt), med "snart klar / sidste år" (gult) og "ikke klar" (rødt) ovenpå. Tryk for at se tal.
+- Drikkevindue pr. vin som bjælke fra i år og frem. Sorteret: klar og tættest på at udløbe øverst (mindst af vinduet tilbage), lige blevet klar nederst, derefter dem der endnu ikke er klar.
+- Liste over vine der er over vinduet – med "Kassér" og "Del / kopiér listen".
 
 ## Teknik
 
@@ -83,5 +84,5 @@ iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (grati
 5. ✅ Flow: **Ny vin** med foto
 6. ✅ Flow: **Drik** med foto, stjerner og noter, samt **Drukket**-historik
 7. ✅ Flow: **Hvad skal jeg drikke?** (top 5 + bedste hvidvin som nr. 6)
-8. ✅ Tidslinje: søjlediagram over flasker pr. år og drikkevinduer pr. vin
+8. ✅ Tidslinje: kurve over drikkeklare flasker pr. år, drikkevinduer pr. vin og liste over vine der er over vinduet
 9. Test og finpudsning på iPhone
