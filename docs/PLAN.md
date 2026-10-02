@@ -38,20 +38,26 @@ Vægtningen kombinerer:
 - **Hvor godt vinen passer** til retten
 - **Hvor meget det haster** – en vin, der er ved at løbe ud, rykker op
 
+Er der ingen hvidvin i top 5, foreslås den bedste hvidvin som nr. 6.
+
+### 5. Tidslinje
+- Søjlediagram: hvor mange flasker der skal drikkes senest hvert år
+- Drikkevinduet for hver vin som en vandret bjælke i statusfarven, med en streg for "nu"
+
 ## Teknik
 
 ```
 iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (gratis)
                     • holder AI-nøglen hemmelig      • læser etiketten
-                    • kræver dit login               • søger på Google
+                    • kræver dit login               • (søger på Google, hvis muligt)
       │
       └──►  Supabase database + billedlager (EU)
 ```
 
 - **App:** PWA på GitHub Pages – https://petergrostoel.github.io/WineCellar/
-- **Data:** Supabase (Frankfurt) – database med login og Row Level Security
+- **Data:** Supabase (Irland, EU) – database med login og Row Level Security
 - **Billeder:** Supabase Storage, privat mappe pr. bruger. Billederne gøres mindre på telefonen før upload.
-- **AI:** Google Gemini, gratis udgave (Flash-model med Google-søgning).
+- **AI:** Google Gemini, gratis udgave (Flash-model). Google-søgning bruges automatisk, hvis den er tilgængelig (kræver betalingskort på Gemini-nøglen) – ellers svarer AI'en ud fra egen viden.
   Al AI-kode ligger i én Edge Function, så tjenesten kan skiftes (fx til Claude) uden at ændre appen.
 
 ## Datamodel
@@ -71,10 +77,11 @@ iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (grati
 ## Byggetrin
 
 1. ✅ Grundapp, PWA, GitHub Pages, login og online-lagring
-2. Database: nye felter, `tastings`-tabel og billedlager
-3. Edge Function med Gemini: genkend etiket, find vin i beholdning, madanbefaling
-4. Ny forside: farvekoder, "Skal snart drikkes" og store knapper til foto
-5. Flow: **Ny vin** med foto
-6. Flow: **Drik** med foto, stjerner og noter, samt **Drukket**-historik
-7. Flow: **Hvad skal jeg drikke?** (top 5)
-8. Finpudsning på iPhone
+2. ✅ Database: nye felter, `tastings`-tabel og billedlager
+3. ✅ Edge Function med Gemini: genkend etiket, find vin i beholdning, madanbefaling
+4. ✅ Ny forside: farvekoder, "Skal snart drikkes" og store knapper til foto
+5. ✅ Flow: **Ny vin** med foto
+6. ✅ Flow: **Drik** med foto, stjerner og noter, samt **Drukket**-historik
+7. ✅ Flow: **Hvad skal jeg drikke?** (top 5 + bedste hvidvin som nr. 6)
+8. ✅ Tidslinje: søjlediagram over flasker pr. år og drikkevinduer pr. vin
+9. Test og finpudsning på iPhone

@@ -285,17 +285,23 @@ Svar KUN med JSON: {"scores": [{"id": "...", "match": 0-10, "reason": "..."}]} �
 
   // Samlet score: 70 % match, 30 % hvor meget det haster.
   // Vine der ikke er klar endnu, kommer kun med, hvis der ikke er nok andre.
-  const ranked = inStock.map((w) => {
+  const all = inStock.map((w) => {
     const s = scores.get(w.id) ?? { match: 0, reason: "" };
     const u = urgency(w, year);
     const total = u.score === null ? s.match * 0.7 - 5 : s.match * 0.7 + u.score * 0.3;
-    return { id: w.id, match: s.match, urgency: u.score, urgencyText: u.text, reason: s.reason, score: Math.round(total * 10) / 10 };
-  })
-    .filter((x) => x.match >= 3)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    return {
+      id: w.id, type: w.type, match: s.match, urgency: u.score, urgencyText: u.text,
+      reason: s.reason, score: Math.round(total * 10) / 10,
+    };
+  }).sort((a, b) => b.score - a.score);
+  const top = all.filter((x) => x.match >= 3).slice(0, 5);
 
-  return { dish, top: ranked };
+  // Er der ingen hvidvin i top 5, foreslås den bedste hvidvin som nr. 6.
+  const white = top.some((x) => x.type === "Hvid")
+    ? null
+    : all.find((x) => x.type === "Hvid" && x.urgency !== null) ?? all.find((x) => x.type === "Hvid") ?? null;
+
+  return { dish, top, white };
 }
 
 // ---------- models: hvilke modeller kan nøglen bruge ----------

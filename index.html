@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- ---------- Login ---------- -->
   <section id="auth-view" class="auth-view" hidden>
     <div class="card auth-card">
       <h1>🍷 Wine Cellar</h1>
@@ -32,81 +33,101 @@
     </div>
   </section>
 
+  <!-- ---------- App ---------- -->
   <div id="app-view" hidden>
-  <header class="topbar">
-    <h1>🍷 Wine Cellar</h1>
-    <div class="stats" id="stats"></div>
-    <div class="account">
-      <span id="sync-status" class="sync" title="Synkronisering"></span>
-      <button type="button" id="logout-btn">Log ud</button>
-    </div>
-  </header>
+    <header class="topbar">
+      <h1>🍷 Wine Cellar</h1>
+      <div class="account">
+        <span id="sync-status" class="sync" title="Synkronisering"></span>
+        <button type="button" id="logout-btn" class="small">Log ud</button>
+      </div>
+    </header>
 
-  <main class="layout">
-    <section class="card form-card">
-      <h2 id="form-title">Tilføj vin</h2>
-      <form id="wine-form" autocomplete="off">
-        <input type="hidden" name="id">
-        <label>Navn<input name="name" required placeholder="fx Château Margaux"></label>
-        <label>Producent<input name="producer"></label>
-        <div class="row">
-          <label>Type
-            <select name="type">
+    <main>
+      <!-- Kælder -->
+      <section id="tab-cellar" class="tab">
+        <div class="stats" id="stats"></div>
+
+        <div class="big-actions">
+          <button type="button" class="big-btn primary" id="btn-add"><span>📷</span>Ny vin</button>
+          <button type="button" class="big-btn" id="btn-drink"><span>🍷</span>Drik</button>
+          <button type="button" class="big-btn" id="btn-pair"><span>🍽️</span>Til maden</button>
+        </div>
+
+        <section id="soon" class="block" hidden>
+          <h2>Skal snart drikkes</h2>
+          <ul id="soon-list" class="wine-list"></ul>
+        </section>
+
+        <section class="block">
+          <h2>Min kælder</h2>
+          <div class="toolbar">
+            <input id="search" type="search" placeholder="Søg i navn, producent, region, druer…">
+            <select id="filter-type" aria-label="Type">
+              <option value="">Alle typer</option>
               <option>Rød</option><option>Hvid</option><option>Rosé</option>
               <option>Mousserende</option><option>Dessert</option><option>Hedvin</option>
             </select>
-          </label>
-          <label>Årgang<input name="vintage" type="number" min="1800" max="2100"></label>
-        </div>
-        <div class="row">
-          <label>Land<input name="country"></label>
-          <label>Region<input name="region"></label>
-        </div>
-        <label>Druer<input name="grapes" placeholder="fx Cabernet Sauvignon, Merlot"></label>
-        <div class="row">
-          <label>Antal flasker<input name="quantity" type="number" min="0" value="1"></label>
-          <label>Pris pr. flaske (kr)<input name="price" type="number" min="0" step="0.01"></label>
-        </div>
-        <div class="row">
-          <label>Drik fra (år)<input name="drinkFrom" type="number" min="1800" max="2100"></label>
-          <label>Drik før (år)<input name="drinkTo" type="number" min="1800" max="2100"></label>
-        </div>
-        <label>Placering<input name="location" placeholder="fx Reol A, hylde 3"></label>
-        <label>Noter<textarea name="notes" rows="3"></textarea></label>
-        <div class="actions">
-          <button type="submit" class="primary" id="submit-btn">Tilføj</button>
-          <button type="button" id="cancel-btn" hidden>Annullér</button>
-        </div>
-      </form>
-    </section>
+            <select id="sort" aria-label="Sortering">
+              <option value="urgency">Drikkes først</option>
+              <option value="name">Navn</option>
+              <option value="vintage">Årgang</option>
+              <option value="quantity">Antal</option>
+            </select>
+          </div>
+          <ul id="wine-list" class="wine-list"></ul>
+          <p id="empty" class="empty" hidden></p>
+        </section>
 
-    <section class="card list-card">
-      <div class="toolbar">
-        <input id="search" type="search" placeholder="Søg i navn, producent, region, druer…">
-        <select id="filter-type">
-          <option value="">Alle typer</option>
-          <option>Rød</option><option>Hvid</option><option>Rosé</option>
-          <option>Mousserende</option><option>Dessert</option><option>Hedvin</option>
-        </select>
-        <select id="sort">
-          <option value="name">Sortér: navn</option>
-          <option value="vintage">Sortér: årgang</option>
-          <option value="drinkTo">Sortér: drik før</option>
-          <option value="quantity">Sortér: antal</option>
-        </select>
-        <label class="check"><input type="checkbox" id="hide-empty" checked> Skjul tomme</label>
-      </div>
-      <ul id="wine-list" class="wine-list"></ul>
-      <p id="empty" class="empty" hidden>Ingen vine endnu – tilføj den første til venstre.</p>
-      <div class="io">
-        <button type="button" id="export-btn">Eksportér JSON</button>
-        <label class="file-btn">Importér JSON<input type="file" id="import-file" accept="application/json" hidden></label>
-      </div>
-    </section>
-  </main>
+        <div class="io">
+          <button type="button" id="btn-manual" class="small">＋ Tilføj uden foto</button>
+          <button type="button" id="export-btn" class="small">Eksportér backup</button>
+          <label class="file-btn small">Importér backup<input type="file" id="import-file" accept="application/json" hidden></label>
+        </div>
+      </section>
 
-  <button type="button" class="fab" id="fab" aria-label="Tilføj vin">+</button>
+      <!-- Tidslinje -->
+      <section id="tab-timeline" class="tab" hidden>
+        <section class="block">
+          <h2>Flasker der skal drikkes – pr. år</h2>
+          <p class="muted small-text">Antal flasker hvis drikkevindue slutter det pågældende år.</p>
+          <div id="year-chart" class="year-chart"></div>
+        </section>
+        <section class="block">
+          <h2>Drikkevinduer</h2>
+          <div class="legend" id="legend"></div>
+          <div id="timeline" class="timeline"></div>
+        </section>
+      </section>
+
+      <!-- Drukket -->
+      <section id="tab-history" class="tab" hidden>
+        <section class="block">
+          <h2>Drukket</h2>
+          <ul id="history-list" class="history-list"></ul>
+          <p id="history-empty" class="empty" hidden>Du har ikke registreret nogen drukne flasker endnu.</p>
+        </section>
+      </section>
+    </main>
+
+    <nav class="tabbar" aria-label="Faner">
+      <button type="button" data-tab="cellar" class="active"><span>🍾</span>Kælder</button>
+      <button type="button" data-tab="timeline"><span>📊</span>Tidslinje</button>
+      <button type="button" data-tab="history"><span>⭐</span>Drukket</button>
+    </nav>
   </div>
+
+  <!-- Ark (dialog) der glider op nedefra -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-panel" role="dialog" aria-modal="true">
+      <button type="button" class="sheet-close" data-close aria-label="Luk">✕</button>
+      <div id="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <input type="file" id="camera" accept="image/*" capture="environment" hidden>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
