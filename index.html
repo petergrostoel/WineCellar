@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wine Cellar</title>
+  <meta name="theme-color" content="#7b1e3a">
+  <!-- iPhone: kør som app fra hjemmeskærmen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Vinkælder">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>🍷 Wine Cellar</h1>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <main class="layout">
+    <section class="card form-card">
+      <h2 id="form-title">Tilføj vin</h2>
+      <form id="wine-form" autocomplete="off">
+        <input type="hidden" name="id">
+        <label>Navn<input name="name" required placeholder="fx Château Margaux"></label>
+        <label>Producent<input name="producer"></label>
+        <div class="row">
+          <label>Type
+            <select name="type">
+              <option>Rød</option><option>Hvid</option><option>Rosé</option>
+              <option>Mousserende</option><option>Dessert</option><option>Hedvin</option>
+            </select>
+          </label>
+          <label>Årgang<input name="vintage" type="number" min="1800" max="2100"></label>
+        </div>
+        <div class="row">
+          <label>Land<input name="country"></label>
+          <label>Region<input name="region"></label>
+        </div>
+        <label>Druer<input name="grapes" placeholder="fx Cabernet Sauvignon, Merlot"></label>
+        <div class="row">
+          <label>Antal flasker<input name="quantity" type="number" min="0" value="1"></label>
+          <label>Pris pr. flaske (kr)<input name="price" type="number" min="0" step="0.01"></label>
+        </div>
+        <div class="row">
+          <label>Drik fra (år)<input name="drinkFrom" type="number" min="1800" max="2100"></label>
+          <label>Drik før (år)<input name="drinkTo" type="number" min="1800" max="2100"></label>
+        </div>
+        <label>Placering<input name="location" placeholder="fx Reol A, hylde 3"></label>
+        <label>Noter<textarea name="notes" rows="3"></textarea></label>
+        <div class="actions">
+          <button type="submit" class="primary" id="submit-btn">Tilføj</button>
+          <button type="button" id="cancel-btn" hidden>Annullér</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card list-card">
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Søg i navn, producent, region, druer…">
+        <select id="filter-type">
+          <option value="">Alle typer</option>
+          <option>Rød</option><option>Hvid</option><option>Rosé</option>
+          <option>Mousserende</option><option>Dessert</option><option>Hedvin</option>
+        </select>
+        <select id="sort">
+          <option value="name">Sortér: navn</option>
+          <option value="vintage">Sortér: årgang</option>
+          <option value="drinkTo">Sortér: drik før</option>
+          <option value="quantity">Sortér: antal</option>
+        </select>
+        <label class="check"><input type="checkbox" id="hide-empty" checked> Skjul tomme</label>
+      </div>
+      <ul id="wine-list" class="wine-list"></ul>
+      <p id="empty" class="empty" hidden>Ingen vine endnu – tilføj den første til venstre.</p>
+      <div class="io">
+        <button type="button" id="export-btn">Eksportér JSON</button>
+        <label class="file-btn">Importér JSON<input type="file" id="import-file" accept="application/json" hidden></label>
+      </div>
+    </section>
+  </main>
+
+  <button type="button" class="fab" id="fab" aria-label="Tilføj vin">+</button>
+
+  <script src="app.js"></script>
+</body>
+</html>
