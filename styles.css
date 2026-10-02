@@ -332,13 +332,17 @@ main {
 .tl-name small { color: var(--muted); white-space: nowrap; }
 .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); }
 .tl-now { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); opacity: .7; z-index: 2; }
-.tl-bar { position: absolute; top: 5px; height: 12px; border-radius: 4px; background: var(--st-none); z-index: 1; }
-.tl-bar.green { background: var(--st-green); }
-.tl-bar.yellow { background: var(--st-yellow); }
-.tl-bar.red { background: var(--st-red); }
-.tl-bar.grey { background: var(--st-grey); }
-.tl-bar.open-start { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.tl-bar.open-end { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tl-seg {
+  position: absolute; top: 5px; height: 12px; z-index: 1;
+  background: var(--st-none);
+  border-right: 2px solid var(--bg); /* 2px mellemrum mellem farveskift */
+}
+.tl-seg.last { border-right: none; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.tl-seg.first { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.tl-seg.green { background: var(--st-green); }
+.tl-seg.yellow { background: var(--st-yellow); }
+.tl-seg.red { background: var(--st-red); }
+.tl-seg.grey { background: var(--st-grey); }
 
 .area-chart { position: relative; touch-action: pan-y; }
 .area-chart svg { display: block; width: 100%; height: auto; overflow: visible; }

@@ -701,6 +701,14 @@ window.addEventListener("resize", () => {
 
 // --- Drikkevinduer pr. vin, fra i år og frem ---
 
+const STATUS_NAMES = {
+  green: "Ideel",
+  yellow: "Snart klar / sidste år",
+  red: "Ikke klar",
+  grey: "Over vinduet",
+  none: "Ukendt",
+};
+
 function renderWindows() {
   const now = thisYear();
   // Alt nedenfor beregnes for det valgte år (standard: i år).
@@ -738,8 +746,9 @@ function renderWindows() {
     ...stock.filter((w) => !ready(w)).sort((a, b) => a.drinkFrom - b.drinkFrom || (a.drinkTo ?? 9999) - (b.drinkTo ?? 9999)),
   ];
 
+  // Akse fra i dag til og med det sidste år, hvor en vin i kælderen er i sit vindue.
   const minY = now;
-  const maxY = Math.min(now + 30, Math.max(now + 6, year + 2, ...stock.map((w) => (w.drinkTo ?? now) + 1)));
+  const maxY = Math.min(now + 30, Math.max(now + 6, year + 2, ...withWindow.map((w) => (w.drinkTo ?? now) + 1)));
   const span = maxY - minY;
   const pos = (y) => ((y - minY) / span) * 100;
   const step = span > 20 ? 10 : 5;
@@ -749,22 +758,37 @@ function renderWindows() {
     + `<span class="tl-now" style="left:${pos(now + 0.5)}%"></span>`
     + (year !== now ? `<span class="tl-sel" style="left:${pos(year + 0.5)}%"></span>` : "");
 
+  // Livscyklus: bjælken farves år for år efter vinens status det år
+  // (rød → gul → grøn → gul → grå), samlet i sammenhængende stykker.
+  const lifecycle = (w) => {
+    const runs = [];
+    for (let y = minY; y < maxY; y++) {
+      const key = windowStatus(w, y).key;
+      const last = runs[runs.length - 1];
+      if (last && last.key === key) last.to = y + 1;
+      else runs.push({ key, from: y, to: y + 1 });
+    }
+    return runs.map((r, i) => {
+      const ends = [i === 0 ? "first" : "", i === runs.length - 1 ? "last" : ""].join(" ");
+      const label = `${r.from}${r.to - 1 > r.from ? "–" + (r.to - 1) : ""}: ${STATUS_NAMES[r.key]}`;
+      return `<span class="tl-seg ${r.key} ${ends}" style="left:${pos(r.from)}%;width:${pos(r.to) - pos(r.from)}%" title="${label}"></span>`;
+    }).join("");
+  };
+
   const rows = sorted.map((w) => {
     const s = windowStatus(w, year);
-    const from = w.drinkFrom ?? minY;
-    const to = (w.drinkTo ?? maxY - 1) + 1; // vinduet dækker hele det sidste år
-    const left = Math.max(0, pos(from));
-    const right = Math.min(100, pos(to));
-    const cls = [s.key, from < minY || !w.drinkFrom ? "open-start" : "", to > maxY || !w.drinkTo ? "open-end" : ""].join(" ");
     return `
       <div class="tl-row" data-id="${w.id}" title="${escapeHtml(wineTitle(w))}: ${windowText(w)} – ${escapeHtml(s.label)}">
         <div class="tl-name"><span><span class="dot ${s.key}" style="display:inline-block"></span> ${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}</span><small>${windowText(w)} · ${w.quantity} fl.</small></div>
-        <div class="tl-track">${grid}<span class="tl-bar ${cls}" style="left:${left}%;width:${Math.max(1.5, right - left)}%"></span></div>
+        <div class="tl-track">${grid}${lifecycle(w)}</div>
       </div>`;
   }).join("");
 
+  const legend = `<div class="legend">${["green", "yellow", "red", "grey"]
+    .map((k) => `<span><span class="dot ${k}"></span>${STATUS_NAMES[k]}</span>`).join("")}</div>`;
+
   const axis = `<div class="tl-axis">${ticks.map((y) => `<span style="left:${pos(y)}%">${y}</span>`).join("")}</div>`;
-  $("#timeline").innerHTML = filterBar + axis + rows +
+  $("#timeline").innerHTML = filterBar + legend + axis + rows +
     (without.length ? `<p class="muted small-text" style="margin-top:12px">Uden drikkevindue: ${without.map((w) => escapeHtml(wineTitle(w))).join(", ")}</p>` : "");
   $("#tl-reset")?.addEventListener("click", resetSelectedYear);
 }

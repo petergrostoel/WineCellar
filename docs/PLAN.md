@@ -42,7 +42,7 @@ Er der ingen hvidvin i top 5, foreslås den bedste hvidvin som nr. 6.
 
 ### 5. Tidslinje
 - Kurve fra i år og frem: antal drikkeklare flasker pr. år (grønt), med "snart klar / sidste år" (gult) og "ikke klar" (rødt) ovenpå. Tryk for at se tal. Trykket år filtrerer også listen over drikkevinduer til det år (farver og sortering for det år; "Vis i år" nulstiller).
-- Drikkevindue pr. vin som bjælke fra i år og frem. Sorteret: klar og tættest på at udløbe øverst (mindst af vinduet tilbage), lige blevet klar nederst, derefter dem der endnu ikke er klar.
+- Drikkevindue pr. vin som livscyklus-bjælke fra i år til det sidste år, hvor en vin i kælderen er i sit vindue – farvet år for år (rød → gul → grøn → gul → grå). Sorteret: klar og tættest på at udløbe øverst (mindst af vinduet tilbage), lige blevet klar nederst, derefter dem der endnu ikke er klar.
 - Liste over vine der er over vinduet – med "Kassér" og "Del / kopiér listen".
 
 ## Teknik
