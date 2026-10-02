@@ -1,1 +1,4 @@
 .claude/settings.local.json
+tools/
+supabase/.temp/
+supabase/.branches/
