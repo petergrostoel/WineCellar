@@ -641,12 +641,15 @@ function renderAreaChart() {
     </svg>
     <div class="area-tip" id="area-tip" hidden></div>`;
 
-  // Tryk/hover: vis tal for nærmeste år.
+  // Hover: vis tal for nærmeste år. Tryk: vælg året og filtrér listen nedenunder.
   const svg = $("svg", el);
-  const show = (evt) => {
+  const indexAt = (evt) => {
     const rect = svg.getBoundingClientRect();
     const px = ((evt.clientX - rect.left) / rect.width) * W;
-    const i = Math.max(0, Math.min(years.length - 1, Math.round((px - m.l) / stepX)));
+    return Math.max(0, Math.min(years.length - 1, Math.round((px - m.l) / stepX)));
+  };
+  const showIndex = (i) => {
+    const rect = svg.getBoundingClientRect();
     const d = data[i];
     $("#area-cursor").setAttribute("x1", x(i));
     $("#area-cursor").setAttribute("x2", x(i));
@@ -669,11 +672,26 @@ function renderAreaChart() {
     $("#area-cursor").setAttribute("visibility", "hidden");
     $("#area-dot").setAttribute("visibility", "hidden");
   };
+  const selectedIndex = () => years.indexOf(selectedYear);
   const hit = $("#area-hit");
-  hit.addEventListener("pointermove", show);
-  hit.addEventListener("pointerdown", show);
-  hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+  hit.addEventListener("pointermove", (e) => showIndex(indexAt(e)));
+  hit.addEventListener("pointerdown", (e) => {
+    const i = indexAt(e);
+    showIndex(i);
+    selectedYear = years[i] === year ? null : years[i];
+    renderWindows();
+  });
+  hit.addEventListener("pointerleave", (e) => {
+    if (e.pointerType !== "mouse") return;
+    // Ved hover tilbage til det valgte år (eller skjul, hvis intet er valgt).
+    if (selectedIndex() >= 0) showIndex(selectedIndex());
+    else hide();
+  });
+  if (selectedIndex() >= 0) requestAnimationFrame(() => showIndex(selectedIndex()));
 }
+
+// Valgt år i kurven (null = i år). Listen over drikkevinduer følger det.
+let selectedYear = null;
 
 let resizeTimer;
 window.addEventListener("resize", () => {
@@ -684,12 +702,24 @@ window.addEventListener("resize", () => {
 // --- Drikkevinduer pr. vin, fra i år og frem ---
 
 function renderWindows() {
-  const year = thisYear();
-  const stock = inStock().filter((w) => (w.drinkFrom || w.drinkTo) && windowStatus(w).key !== "grey");
+  const now = thisYear();
+  // Alt nedenfor beregnes for det valgte år (standard: i år).
+  const year = selectedYear ?? now;
+  const withWindow = inStock().filter((w) => w.drinkFrom || w.drinkTo);
+  const stock = withWindow.filter((w) => windowStatus(w, year).key !== "grey");
   const without = inStock().filter((w) => !w.drinkFrom && !w.drinkTo);
 
+  const filterBar = selectedYear ? `
+    <div class="tl-filter">
+      <span>Viser <strong>${year}</strong> · ${stock.length} vine</span>
+      <button type="button" class="small" id="tl-reset">Vis i år</button>
+    </div>` : "";
+
   if (!stock.length) {
-    $("#timeline").innerHTML = `<p class="empty">Ingen vine med drikkevindue endnu.</p>`;
+    $("#timeline").innerHTML = filterBar + `<p class="empty">${withWindow.length
+      ? `Ingen vine er inden for eller før deres drikkevindue i ${year}.`
+      : "Ingen vine med drikkevindue endnu."}</p>`;
+    $("#tl-reset")?.addEventListener("click", resetSelectedYear);
     return;
   }
 
@@ -708,18 +738,19 @@ function renderWindows() {
     ...stock.filter((w) => !ready(w)).sort((a, b) => a.drinkFrom - b.drinkFrom || (a.drinkTo ?? 9999) - (b.drinkTo ?? 9999)),
   ];
 
-  const minY = year;
-  const maxY = Math.min(year + 30, Math.max(year + 6, ...stock.map((w) => (w.drinkTo ?? year) + 1)));
+  const minY = now;
+  const maxY = Math.min(now + 30, Math.max(now + 6, year + 2, ...stock.map((w) => (w.drinkTo ?? now) + 1)));
   const span = maxY - minY;
   const pos = (y) => ((y - minY) / span) * 100;
   const step = span > 20 ? 10 : 5;
   const ticks = [];
   for (let y = Math.ceil(minY / step) * step; y <= maxY; y += step) ticks.push(y);
   const grid = ticks.map((y) => `<span class="tl-grid" style="left:${pos(y)}%"></span>`).join("")
-    + `<span class="tl-now" style="left:${pos(year + 0.5)}%"></span>`;
+    + `<span class="tl-now" style="left:${pos(now + 0.5)}%"></span>`
+    + (year !== now ? `<span class="tl-sel" style="left:${pos(year + 0.5)}%"></span>` : "");
 
   const rows = sorted.map((w) => {
-    const s = windowStatus(w);
+    const s = windowStatus(w, year);
     const from = w.drinkFrom ?? minY;
     const to = (w.drinkTo ?? maxY - 1) + 1; // vinduet dækker hele det sidste år
     const left = Math.max(0, pos(from));
@@ -733,8 +764,15 @@ function renderWindows() {
   }).join("");
 
   const axis = `<div class="tl-axis">${ticks.map((y) => `<span style="left:${pos(y)}%">${y}</span>`).join("")}</div>`;
-  $("#timeline").innerHTML = axis + rows +
+  $("#timeline").innerHTML = filterBar + axis + rows +
     (without.length ? `<p class="muted small-text" style="margin-top:12px">Uden drikkevindue: ${without.map((w) => escapeHtml(wineTitle(w))).join(", ")}</p>` : "");
+  $("#tl-reset")?.addEventListener("click", resetSelectedYear);
+}
+
+function resetSelectedYear() {
+  selectedYear = null;
+  renderAreaChart();
+  renderWindows();
 }
 
 // --- Over vinduet: vine der bør tjekkes eller kasseres ---

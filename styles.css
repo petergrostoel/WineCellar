@@ -360,3 +360,9 @@ main {
 .area-tip strong { display: block; }
 .area-tip .dot { display: inline-block; margin-right: 4px; }
 .expired-actions { display: flex; gap: 6px; }
+.tl-sel { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--accent); z-index: 2; }
+.tl-filter {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  background: var(--accent-soft); border-radius: 10px; padding: 6px 6px 6px 12px;
+  margin-bottom: 10px; font-size: .9rem;
+}
