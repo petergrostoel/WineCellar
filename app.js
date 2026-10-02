@@ -1433,5 +1433,20 @@ $("#import-file").addEventListener("change", async (e) => {
 })();
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  navigator.serviceWorker.register("sw.js");
+  // Når en ny version af appen er hentet, genindlæses siden automatisk –
+  // men aldrig midt i en indtastning (så ventes til appen åbnes igen).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloadPending = false;
+  const reloadIfIdle = () => {
+    if (reloadPending && $("#sheet").hidden) location.reload();
+  };
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) return; // første installation
+    reloadPending = true;
+    reloadIfIdle();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") reloadIfIdle();
+  });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
 }

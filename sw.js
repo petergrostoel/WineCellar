@@ -1,6 +1,6 @@
 // Service worker: gør appen tilgængelig offline.
 // Hæv versionen når filerne ændres, så telefonen henter den nye udgave.
-const CACHE = "wine-cellar-v7";
+const CACHE = "wine-cellar-v8";
 const FILES = [
   "./",
   "index.html",
@@ -31,9 +31,13 @@ self.addEventListener("activate", (e) => {
 // Kald til Supabase (login og data) går altid direkte til nettet.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
-  if (new URL(e.request.url).hostname.endsWith(".supabase.co")) return;
+  const url = new URL(e.request.url);
+  if (url.hostname.endsWith(".supabase.co")) return;
+  // Appens egne filer: spørg altid serveren om der er en nyere version
+  // (GitHub Pages lader ellers browseren genbruge filer i 10 minutter).
+  const sameOrigin = url.origin === self.location.origin;
   e.respondWith(
-    fetch(e.request)
+    fetch(sameOrigin ? new Request(e.request, { cache: "no-cache" }) : e.request)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
