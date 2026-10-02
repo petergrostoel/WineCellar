@@ -41,3 +41,13 @@ sw.js          – service worker (offline)
 icons/         – app-ikoner
 serve.ps1      – lille lokal testserver
 ```
+
+## Backup
+
+Fuld backup (vine, smagninger og etiketbilleder) til `Dokumenter\WineCellar-backup\<dato_tid>\`:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\backup.ps1
+```
+
+Scriptet læser kun fra databasen og ændrer intet. Kræver at Supabase CLI i `tools\` er logget ind.
