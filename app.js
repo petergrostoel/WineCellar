@@ -793,7 +793,7 @@ async function startAdd() {
 
   const run = async () => {
     token = openSheet(`<img class="photo small" src="${image.dataUrl}" alt="">` +
-      loadingHtml("Genkender vinen…", "AI'en læser etiketten og finder smag, drikkevindue og madparring. Det tager typisk 10–30 sekunder."));
+      loadingHtml("Genkender vinen…", "AI'en læser etiketten og finder smag, drikkevindue og madparring. Det tager typisk 20–60 sekunder."));
     try {
       const result = await ai("identify", { image: image.dataUrl });
       if (token !== sheetToken) return;

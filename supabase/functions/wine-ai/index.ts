@@ -11,10 +11,18 @@
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-// Første model der virker bruges. Kan overstyres med hemmeligheden GEMINI_MODEL.
-// (gemini-flash-latest er med i den gratis kvote; 3.8 Flash kræver betaling.)
-const MODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest,gemini-3.8-flash")
+// Modellerne prøves i rækkefølge, til én svarer. Kan overstyres med hemmeligheden
+// GEMINI_MODEL. Den gratis kvote afviser ofte kald, når Google har travlt, så
+// der er flere at vælge imellem.
+const MODELS = (Deno.env.get("GEMINI_MODEL") ??
+  "gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-flash-lite-latest")
   .split(",").map((m) => m.trim()).filter(Boolean);
+const DEADLINE_MS = 100_000; // Supabase stopper funktionen efter 150 sek.
+// Google-søgning er ikke med i den gratis kvote. Tilknyt betalingskort til
+// Gemini-nøglen og sæt hemmeligheden GEMINI_SEARCH=true for at slå den til.
+const SEARCH_ENABLED = Deno.env.get("GEMINI_SEARCH") === "true";
+// Når Google-søgning er afvist, prøves den ikke igen i en time (sparer tid).
+let searchBlockedUntil = 0;
 const API = "https://generativelanguage.googleapis.com/v1beta";
 const WINE_TYPES = ["Rød", "Hvid", "Rosé", "Mousserende", "Dessert", "Hedvin"];
 
@@ -57,51 +65,81 @@ type Part = { text: string } | { inline_data: { mime_type: string; data: string 
 // Med search=true forsøges Google-søgning først. Er søgning ikke med i kvoten
 // (gratis udgave), svarer modellen i stedet ud fra sin egen viden.
 async function gemini(parts: Part[], { search = false } = {}) {
-  if (search) {
+  const deadline = Date.now() + DEADLINE_MS;
+  if (search && SEARCH_ENABLED && Date.now() > searchBlockedUntil) {
     try {
-      return { ...(await callGemini(parts, true)), searched: true };
+      return { ...(await callGemini(parts, true, deadline)), searched: true };
     } catch (err) {
-      if (!(err instanceof HttpError && err.status === 429)) throw err;
-      console.warn("Google-søgning ikke tilgængelig – svarer uden søgning");
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 429) searchBlockedUntil = Date.now() + 60 * 60 * 1000;
+      console.warn("Google-søgning mislykkedes – svarer uden søgning");
     }
   }
-  return { ...(await callGemini(parts, false)), searched: false };
+  return { ...(await callGemini(parts, false, deadline)), searched: false };
 }
 
-async function callGemini(parts: Part[], search: boolean) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function callGemini(parts: Part[], search: boolean, deadline: number) {
   if (!GEMINI_API_KEY) throw new HttpError(500, "GEMINI_API_KEY mangler i Supabase.");
-  const body: Record<string, unknown> = {
+  const body = JSON.stringify({
     contents: [{ role: "user", parts }],
     generationConfig: { temperature: 0.2 },
-  };
-  if (search) body.tools = [{ google_search: {} }];
+    ...(search ? { tools: [{ google_search: {} }] } : {}),
+  });
 
-  let lastError = "";
-  for (const model of MODELS) {
-    const res = await fetch(`${API}/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const cand = data.candidates?.[0];
-      const text = (cand?.content?.parts ?? [])
-        .map((p: { text?: string }) => p.text ?? "")
-        .join("");
-      const sources = (cand?.groundingMetadata?.groundingChunks ?? [])
-        .map((c: { web?: { uri?: string; title?: string } }) => c.web)
-        .filter((w: unknown) => w)
-        .map((w: { uri?: string; title?: string }) => ({ url: w.uri, title: w.title }));
-      return { text, sources, model };
+  const statuses: number[] = [];
+  // Op til to runder: modeller der er overbelastede (503/500) prøves igen.
+  let candidates = [...MODELS];
+  for (let round = 0; round < 2 && candidates.length; round++) {
+    if (round > 0) await sleep(2500);
+    const retry: string[] = [];
+    for (const model of candidates) {
+      const left = deadline - Date.now();
+      if (left < 5000) break;
+      let res: Response;
+      try {
+        res = await fetch(`${API}/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
+          body,
+          signal: AbortSignal.timeout(Math.min(45_000, left)),
+        });
+      } catch (err) {
+        console.error("Gemini-timeout", model, String(err));
+        statuses.push(504);
+        continue;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        const cand = data.candidates?.[0];
+        const text = (cand?.content?.parts ?? [])
+          .map((p: { text?: string }) => p.text ?? "")
+          .join("");
+        if (!text) {
+          console.error("Tomt svar fra", model, cand?.finishReason);
+          statuses.push(502);
+          continue;
+        }
+        const sources = (cand?.groundingMetadata?.groundingChunks ?? [])
+          .map((c: { web?: { uri?: string; title?: string } }) => c.web)
+          .filter((w: unknown) => w)
+          .map((w: { uri?: string; title?: string }) => ({ url: w.uri, title: w.title }));
+        return { text, sources, model };
+      }
+      const detail = `${model}: ${res.status} ${(await res.text()).slice(0, 200)}`;
+      console.error("Gemini-fejl", detail);
+      statuses.push(res.status);
+      if (res.status === 503 || res.status === 500) retry.push(model);
     }
-    lastError = `${model}: ${res.status} ${(await res.text()).slice(0, 300)}`;
-    console.error("Gemini-fejl", lastError);
-    // Kvote opbrugt eller model ikke tilgængelig → prøv næste model.
-    if (![400, 403, 404, 429, 500, 503].includes(res.status)) break;
+    candidates = retry;
   }
-  if (lastError.includes(" 429 ")) {
-    throw new HttpError(429, "AI'en er overbelastet eller dagens gratis kvote er brugt – prøv igen om lidt.");
+
+  if (statuses.length && statuses.every((s) => s === 429)) {
+    throw new HttpError(429, "Den gratis AI-kvote er brugt op for nu. Prøv igen senere.");
+  }
+  if (statuses.some((s) => s === 503 || s === 500 || s === 504)) {
+    throw new HttpError(503, "Googles gratis AI er overbelastet lige nu. Prøv igen om et øjeblik.");
   }
   throw new HttpError(502, "AI'en svarede ikke. Prøv igen om lidt.");
 }
