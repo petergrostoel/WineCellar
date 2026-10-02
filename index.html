@@ -16,9 +16,30 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <section id="auth-view" class="auth-view" hidden>
+    <div class="card auth-card">
+      <h1>🍷 Wine Cellar</h1>
+      <p class="muted">Log ind for at se din vinkælder. Dine vine gemmes sikkert online.</p>
+      <form id="auth-form" autocomplete="on">
+        <label>E-mail<input name="email" type="email" required autocomplete="username" inputmode="email"></label>
+        <label>Adgangskode<input name="password" type="password" required minlength="8" autocomplete="current-password"></label>
+        <div class="actions">
+          <button type="submit" class="primary" data-mode="signin">Log ind</button>
+          <button type="submit" data-mode="signup">Opret konto</button>
+        </div>
+        <p id="auth-msg" class="auth-msg" role="status"></p>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-view" hidden>
   <header class="topbar">
     <h1>🍷 Wine Cellar</h1>
     <div class="stats" id="stats"></div>
+    <div class="account">
+      <span id="sync-status" class="sync" title="Synkronisering"></span>
+      <button type="button" id="logout-btn">Log ud</button>
+    </div>
   </header>
 
   <main class="layout">
@@ -85,7 +106,10 @@
   </main>
 
   <button type="button" class="fab" id="fab" aria-label="Tilføj vin">+</button>
+  </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

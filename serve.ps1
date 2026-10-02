@@ -15,6 +15,7 @@ while ($l.IsListening) {
     $bytes = [IO.File]::ReadAllBytes($file)
     $ext = [IO.Path]::GetExtension($file)
     $ctx.Response.ContentType = $(if ($types[$ext]) { $types[$ext] } else { "application/octet-stream" })
+    $ctx.Response.ContentLength64 = $bytes.Length
     $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
   } else { $ctx.Response.StatusCode = 404 }
   $ctx.Response.Close()

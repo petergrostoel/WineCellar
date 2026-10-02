@@ -27,6 +27,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -58,6 +59,28 @@ body {
   padding: 0 24px 24px;
   align-items: start;
 }
+.account { display: flex; align-items: center; gap: 10px; }
+.account button { padding: 4px 10px; font-size: .85rem; min-height: 0; }
+.sync { font-size: .85rem; color: var(--muted); white-space: nowrap; }
+.sync.ok { color: var(--ok); }
+.sync.pending { color: var(--warn); }
+.sync.error { color: var(--bad); }
+
+.auth-view {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.auth-card { width: 100%; max-width: 380px; }
+.auth-card h1 { margin: 0 0 6px; color: var(--accent); font-size: 1.6rem; }
+.muted { color: var(--muted); margin: 0 0 16px; font-size: .95rem; }
+.auth-card .actions button { flex: 1; }
+.auth-msg { margin: 4px 0 0; font-size: .9rem; min-height: 1.2em; }
+.auth-msg.error { color: var(--bad); }
+.auth-msg.ok { color: var(--ok); }
+
 .fab { display: none; }
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; padding: 0 16px 88px; }
