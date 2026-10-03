@@ -12,6 +12,7 @@
   /* Drikkevindue – statusfarver (vises altid sammen med tekst) */
   --st-green: #0ca30c;
   --st-yellow: #fab219;
+  --st-light: #9fdc8c;   /* lysegrøn: på vej ind i vinduet */
   --st-red: #d03b3b;
   --st-grey: #9a9a96;
   --st-none: #d6cfcb;
@@ -203,6 +204,7 @@ main {
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--st-none); }
 .dot.green { background: var(--st-green); }
 .dot.yellow { background: var(--st-yellow); }
+.dot.light { background: var(--st-light); }
 .dot.red { background: var(--st-red); }
 .dot.grey { background: var(--st-grey); }
 .status.big { font-size: .95rem; padding: 6px 12px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); }
@@ -341,6 +343,7 @@ main {
 .tl-seg.first { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
 .tl-seg.green { background: var(--st-green); }
 .tl-seg.yellow { background: var(--st-yellow); }
+.tl-seg.light { background: var(--st-light); }
 .tl-seg.red { background: var(--st-red); }
 .tl-seg.grey { background: var(--st-grey); }
 
@@ -351,6 +354,7 @@ main {
 .area-chart .base-line { stroke: var(--border); stroke-width: 1; }
 .area-chart .area-green { fill: var(--st-green); fill-opacity: .55; }
 .area-chart .area-yellow { fill: var(--st-yellow); fill-opacity: .45; }
+.area-chart .area-light { fill: var(--st-light); fill-opacity: .6; }
 .area-chart .area-red { fill: var(--st-red); fill-opacity: .35; }
 .area-chart .line-green { fill: none; stroke: var(--st-green); stroke-width: 2; stroke-linejoin: round; }
 .area-chart .cursor { stroke: var(--text); stroke-width: 1; opacity: .6; }

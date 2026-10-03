@@ -26,7 +26,8 @@ Hver årgang er en separat vin, fordi drikkevinduet er forskelligt.
 | Farve | Betyder |
 |---|---|
 | 🔴 Rød | Ikke klar endnu |
-| 🟡 Gul | Bliver klar inden for ca. et år, **eller** er i sidste år af vinduet |
+| 🟢 Lysegrøn | Snart klar – bliver klar næste år |
+| 🟡 Gul | Sidste år i vinduet – på vej ud |
 | 🟢 Grøn | I det ideelle vindue |
 | ⚪ Grå | Over vinduet |
 

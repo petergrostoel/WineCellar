@@ -302,7 +302,7 @@ function windowStatus(w, year = thisYear()) {
   const from = w.drinkFrom, to = w.drinkTo;
   if (!from && !to) return { key: "none", label: "Intet drikkevindue" };
   if (from && year < from - 1) return { key: "red", label: `Ikke klar – fra ${from}` };
-  if (from && year === from - 1) return { key: "yellow", label: `Klar fra næste år (${from})` };
+  if (from && year === from - 1) return { key: "light", label: `Snart klar – fra ${from}` };
   if (to && year > to) return { key: "grey", label: `Over vinduet (til ${to})` };
   if (to && year === to) return { key: "yellow", label: "Sidste år i vinduet – drik nu" };
   return { key: "green", label: to ? `Ideel – drik til ${to}` : "Ideel nu" };
@@ -318,8 +318,8 @@ function windowText(w) {
 // Lavere = skal drikkes før. Bruges til sortering.
 function urgencyRank(w) {
   const s = windowStatus(w).key;
-  const order = { grey: 0, yellow: 1, green: 2, red: 4, none: 5 };
-  const base = s === "yellow" && w.drinkFrom && thisYear() < w.drinkFrom ? 3 : order[s];
+  const order = { grey: 0, yellow: 1, green: 2, light: 3, red: 4, none: 5 };
+  const base = order[s];
   return base * 10000 + (w.drinkTo ?? 9999);
 }
 
@@ -573,12 +573,13 @@ function renderTimeline() {
 
 const AREA_SERIES = [
   ["green", "Drikkeklar"],
-  ["yellow", "Snart klar / sidste år"],
+  ["yellow", "Sidste år i vinduet"],
+  ["light", "Snart klar"],
   ["red", "Ikke klar endnu"],
 ];
 
 function yearCounts(stock, y) {
-  const c = { green: 0, yellow: 0, red: 0 };
+  const c = { green: 0, yellow: 0, light: 0, red: 0 };
   for (const w of stock) {
     const k = windowStatus(w, y).key;
     if (k in c) c[k] += w.quantity;
@@ -605,7 +606,7 @@ function renderAreaChart() {
   const W = Math.max(280, el.clientWidth || 340);
   const H = 190;
   const m = { l: 30, r: 10, t: 10, b: 24 };
-  const maxTotal = Math.max(1, ...data.map((d) => d.green + d.yellow + d.red));
+  const maxTotal = Math.max(1, ...data.map((d) => d.green + d.yellow + d.light + d.red));
   const yMax = maxTotal <= 4 ? 4 : Math.ceil(maxTotal / 4) * 4;
   const stepX = (W - m.l - m.r) / (years.length - 1);
   const x = (i) => m.l + i * stepX;
@@ -619,7 +620,8 @@ function renderAreaChart() {
   };
   const g = (d) => d.green;
   const gy = (d) => d.green + d.yellow;
-  const all = (d) => d.green + d.yellow + d.red;
+  const gyl = (d) => d.green + d.yellow + d.light;
+  const all = (d) => d.green + d.yellow + d.light + d.red;
 
   const yTicks = [0, yMax / 2, yMax];
   const labelEvery = Math.ceil(years.length / 7);
@@ -629,7 +631,8 @@ function renderAreaChart() {
       ${yTicks.map((v) => `
         <line class="grid-line" x1="${m.l}" x2="${W - m.r}" y1="${yPx(v)}" y2="${yPx(v)}"></line>
         <text class="axis-text" x="${m.l - 6}" y="${yPx(v) + 4}" text-anchor="end">${v}</text>`).join("")}
-      <path class="area-red" d="${band(gy, all)}"></path>
+      <path class="area-red" d="${band(gyl, all)}"></path>
+      <path class="area-light" d="${band(gy, gyl)}"></path>
       <path class="area-yellow" d="${band(g, gy)}"></path>
       <path class="area-green" d="${band(() => 0, g)}"></path>
       <polyline class="line-green" points="${data.map((d, i) => `${x(i).toFixed(1)},${yPx(d.green).toFixed(1)}`).join(" ")}"></polyline>
@@ -703,7 +706,8 @@ window.addEventListener("resize", () => {
 
 const STATUS_NAMES = {
   green: "Ideel",
-  yellow: "Snart klar / sidste år",
+  yellow: "Sidste år i vinduet",
+  light: "Snart klar",
   red: "Ikke klar",
   grey: "Over vinduet",
   none: "Ukendt",
@@ -784,7 +788,7 @@ function renderWindows() {
       </div>`;
   }).join("");
 
-  const legend = `<div class="legend">${["green", "yellow", "red", "grey"]
+  const legend = `<div class="legend">${["green", "yellow", "light", "red", "grey"]
     .map((k) => `<span><span class="dot ${k}"></span>${STATUS_NAMES[k]}</span>`).join("")}</div>`;
 
   const axis = `<div class="tl-axis">${ticks.map((y) => `<span style="left:${pos(y)}%">${y}</span>`).join("")}</div>`;

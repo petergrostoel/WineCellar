@@ -1,6 +1,6 @@
 // Service worker: gør appen tilgængelig offline.
 // Hæv versionen når filerne ændres, så telefonen henter den nye udgave.
-const CACHE = "wine-cellar-v8";
+const CACHE = "wine-cellar-v9";
 const FILES = [
   "./",
   "index.html",
