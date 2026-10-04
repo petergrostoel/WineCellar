@@ -24,7 +24,7 @@ const SEARCH_ENABLED = Deno.env.get("GEMINI_SEARCH") === "true";
 // Når Google-søgning er afvist, prøves den ikke igen i en time (sparer tid).
 let searchBlockedUntil = 0;
 const API = "https://generativelanguage.googleapis.com/v1beta";
-const WINE_TYPES = ["Rød", "Hvid", "Rosé", "Mousserende", "Dessert", "Hedvin"];
+const WINE_TYPES = ["Rød", "Hvid", "Rosé", "Orange", "Mousserende", "Dessert", "Hedvin"];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -168,6 +168,13 @@ const intOrNull = (v: unknown) => {
 };
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+// Alkoholprocent: accepterer "13,5" og 13.5; urimelige værdier bliver null.
+function abvOrNull(v: unknown) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(String(v).replace(",", ".").replace("%", ""));
+  return Number.isFinite(n) && n >= 0 && n <= 25 ? Math.round(n * 10) / 10 : null;
+}
+
 // ---------- identify: genkend en ny vin ----------
 
 async function identify(input: { image: unknown }) {
@@ -183,7 +190,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   "name": "vinens navn uden producent og årgang, fx 'Barolo Cannubi'",
   "producer": "producent",
   "vintage": 2016,                  // årstal eller null hvis ikke angivet (fx NV champagne)
-  "type": "en af: ${WINE_TYPES.join(", ")}",
+  "type": "en af: ${WINE_TYPES.join(", ")}", // "Orange" = hvidvin lavet med skindkontakt (orange wine / amber)
   "country": "land på dansk",
   "region": "region/appellation",
   "grapes": "druer, kommasepareret",
@@ -191,6 +198,9 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   "drink_from": 2024,               // første år i det ideelle drikkevindue
   "drink_to": 2035,                 // sidste år i det ideelle drikkevindue
   "food_pairings": ["3–6 korte madtyper på dansk, fx 'lam', 'svampe', 'modne oste'"],
+  "abv": 13.5,                      // alkoholprocent fra etiketten (fx "13,5% vol"), ellers dit bedste bud eller null
+  "natural": true/false,            // naturvin: fx "vin nature", "natural wine", "sans sulfites ajoutés", eller producenten er kendt for naturvin
+  "alcohol_free": true/false,       // alkoholfri: under 1 % alkohol, fx "0,0 %", "alkoholfri", "dealcoholised"
   "confidence": "høj | middel | lav", // hvor sikker du er på genkendelsen
   "uncertain": "kort dansk note om hvad der er usikkert, eller tom streng"
 }`;
@@ -200,6 +210,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   if (r.is_wine === false) throw new HttpError(422, "Jeg kan ikke se en vinetiket på billedet. Prøv igen tættere på etiketten.");
 
   const type = WINE_TYPES.find((t) => t.toLowerCase() === str(r.type).toLowerCase()) ?? "Rød";
+  const abv = abvOrNull(r.abv);
   let drinkFrom = intOrNull(r.drink_from);
   let drinkTo = intOrNull(r.drink_to);
   if (drinkFrom && drinkTo && drinkFrom > drinkTo) [drinkFrom, drinkTo] = [drinkTo, drinkFrom];
@@ -217,6 +228,9 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
       drinkFrom,
       drinkTo,
       foodPairings: Array.isArray(r.food_pairings) ? r.food_pairings.map(str).filter(Boolean).slice(0, 8) : [],
+      abv,
+      natural: r.natural === true,
+      alcoholFree: r.alcohol_free === true || (abv !== null && abv < 1),
     },
     confidence: str(r.confidence) || "middel",
     uncertain: str(r.uncertain),

@@ -65,7 +65,8 @@ iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (grati
 ## Datamodel
 
 **wines** – én række pr. vin og årgang
-- navn, producent, årgang, type, land, region, druer
+- navn, producent, årgang, type (Rød, Hvid, Rosé, Orange, Mousserende, Dessert, Hedvin), land, region, druer
+- `is_natural` (naturvin), `alcohol_free` (under 1 %), `abv` (alkoholprocent)
 - antal flasker, pris, placering
 - `description` – karakter og smag
 - `drink_from`, `drink_to` – ideelt drikkevindue (år)

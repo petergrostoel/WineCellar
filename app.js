@@ -6,7 +6,7 @@ const CACHE_KEY = "wine-cellar.v1";            // lokal kopi af vinene
 const PENDING_KEY = "wine-cellar.pending.v1";  // ændringer der mangler at blive sendt op
 const OWNER_KEY = "wine-cellar.owner.v1";      // hvilken bruger den lokale kopi tilhører
 const TASTINGS_KEY = "wine-cellar.tastings.v1";
-const WINE_TYPES = ["Rød", "Hvid", "Rosé", "Mousserende", "Dessert", "Hedvin"];
+const WINE_TYPES = ["Rød", "Hvid", "Rosé", "Orange", "Mousserende", "Dessert", "Hedvin"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -94,6 +94,9 @@ function toRow(w) {
     food_pairings: w.foodPairings ?? [],
     image_path: w.imagePath || null,
     ai_sources: w.aiSources ?? null,
+    is_natural: !!w.natural,
+    alcohol_free: !!w.alcoholFree,
+    abv: w.abv ?? null,
   };
 }
 
@@ -117,6 +120,9 @@ function fromRow(r) {
     foodPairings: r.food_pairings ?? [],
     imagePath: r.image_path ?? "",
     aiSources: r.ai_sources ?? null,
+    natural: !!r.is_natural,
+    alcoholFree: !!r.alcohol_free,
+    abv: r.abv == null ? null : Number(r.abv),
     added: r.created_at,
   };
 }
@@ -323,9 +329,15 @@ function urgencyRank(w) {
   return base * 10000 + (w.drinkTo ?? 9999);
 }
 
-function statusHtml(w, big = false) {
-  const s = windowStatus(w);
-  return `<span class="status${big ? " big" : ""}"><span class="dot ${s.key}"></span>${escapeHtml(s.label)}</span>`;
+function statusHtml(w, big = false, year = thisYear()) {
+  const s = windowStatus(w, year);
+  return `<span class="status-line"><span class="status${big ? " big" : ""}"><span class="dot ${s.key}"></span>${escapeHtml(s.label)}</span>${tagsHtml(w)}</span>`;
+}
+
+// Små mærker ved siden af statusprikken: naturvin og alkoholfri.
+function tagsHtml(w) {
+  return (w.natural ? `<span class="tag natural" title="Naturvin">🌿 natur</span>` : "")
+    + (w.alcoholFree ? `<span class="tag nolc" title="Alkoholfri (under 1 %)">0% alkoholfri</span>` : "");
 }
 
 // ============================================================
@@ -584,6 +596,8 @@ function renderCellar() {
   const sort = $("#sort").value;
   const visible = stock
     .filter((w) => !type || w.type === type)
+    .filter((w) => !$("#filter-natural").checked || w.natural)
+    .filter((w) => !$("#filter-nolc").checked || w.alcoholFree)
     .filter((w) => !q || [w.name, w.producer, w.country, w.region, w.grapes, w.location, w.description]
       .some((f) => (f || "").toLowerCase().includes(q)))
     .sort((a, b) => {
@@ -601,7 +615,7 @@ function renderCellar() {
   refreshThumbs($("#tab-cellar"));
 }
 
-["#search", "#filter-type", "#sort"].forEach((sel) => $(sel).addEventListener("input", renderCellar));
+["#search", "#filter-type", "#sort", "#filter-natural", "#filter-nolc"].forEach((sel) => $(sel).addEventListener("input", renderCellar));
 
 document.addEventListener("click", (e) => {
   const item = e.target.closest(".wine-item[data-id], .tl-row[data-id]");
@@ -832,7 +846,7 @@ function renderWindows() {
     const s = windowStatus(w, year);
     return `
       <div class="tl-row" data-id="${w.id}" title="${escapeHtml(wineTitle(w))}: ${windowText(w)} – ${escapeHtml(s.label)}">
-        <div class="tl-name"><span><span class="dot ${s.key}" style="display:inline-block"></span> ${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}</span><small>${windowText(w)} · ${w.quantity} fl.</small></div>
+        <div class="tl-name"><span><span class="dot ${s.key}" style="display:inline-block"></span> ${escapeHtml(wineTitle(w))} ${w.vintage ?? ""}${tagsHtml(w)}</span><small>${windowText(w)} · ${w.quantity} fl.</small></div>
         <div class="tl-track">${grid}${lifecycle(w)}</div>
       </div>`;
   }).join("");
@@ -984,6 +998,7 @@ function openDetail(id) {
     ["Type", w.type],
     ["Region", [w.region, w.country].filter(Boolean).join(", ")],
     ["Druer", w.grapes],
+    ["Alkohol", w.abv != null ? `${String(w.abv).replace(".", ",")} %` : ""],
     ["Pris", w.price ? `${w.price.toLocaleString("da-DK")} kr` : ""],
     ["Placering", w.location],
   ].filter(([, v]) => v);
@@ -1130,6 +1145,13 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
       </div>
       <label>Druer<input name="grapes" value="${escapeHtml(draft.grapes)}"></label>
       <div class="row">
+        <label>Alkohol (%)<input name="abv" type="number" inputmode="decimal" min="0" max="25" step="0.1" value="${draft.abv ?? ""}"></label>
+        <div class="checks">
+          <label class="check"><input type="checkbox" name="natural" ${draft.natural ? "checked" : ""}> 🌿 Naturvin</label>
+          <label class="check"><input type="checkbox" name="alcoholFree" ${draft.alcoholFree ? "checked" : ""}> Alkoholfri</label>
+        </div>
+      </div>
+      <div class="row">
         <label>Drik fra (år)<input name="drinkFrom" type="number" inputmode="numeric" min="1800" max="2100" value="${draft.drinkFrom ?? ""}"></label>
         <label>Drik til (år)<input name="drinkTo" type="number" inputmode="numeric" min="1800" max="2100" value="${draft.drinkTo ?? ""}"></label>
       </div>
@@ -1188,6 +1210,10 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
         price: num(d.price),
         location: d.location.trim(),
         notes: d.notes.trim(),
+        abv: num(d.abv?.replace(",", ".")),
+        natural: !!d.natural,
+        // Under 1 % alkohol er altid alkoholfri.
+        alcoholFree: !!d.alcoholFree || (num(d.abv?.replace(",", ".")) ?? 99) < 1,
       };
 
       let wine;

@@ -375,3 +375,24 @@ main {
   margin-bottom: 10px; font-size: .9rem;
 }
 .notice.ok { color: var(--ok-text); }
+
+/* Naturvin / alkoholfri */
+.status-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: .75rem; line-height: 1; padding: 3px 7px; margin-top: 4px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text);
+  white-space: nowrap;
+}
+.tl-name .tag { margin: 0 0 0 6px; }
+.toggles { display: flex; gap: 8px; flex: 1 1 100%; }
+.toggle {
+  flex-direction: row; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--card); color: var(--text); font-size: .9rem; cursor: pointer;
+}
+.toggle input { width: auto; margin: 0; }
+.toggle:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); }
+.checks { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; flex: 1; }
+.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: .95rem; }
+.check input { width: auto; margin: 0; }

@@ -65,7 +65,7 @@
             <input id="search" type="search" placeholder="Søg i navn, producent, region, druer…">
             <select id="filter-type" aria-label="Type">
               <option value="">Alle typer</option>
-              <option>Rød</option><option>Hvid</option><option>Rosé</option>
+              <option>Rød</option><option>Hvid</option><option>Rosé</option><option>Orange</option>
               <option>Mousserende</option><option>Dessert</option><option>Hedvin</option>
             </select>
             <select id="sort" aria-label="Sortering">
@@ -74,6 +74,10 @@
               <option value="vintage">Årgang</option>
               <option value="quantity">Antal</option>
             </select>
+            <div class="toggles">
+              <label class="toggle"><input type="checkbox" id="filter-natural"> 🌿 Naturvin</label>
+              <label class="toggle"><input type="checkbox" id="filter-nolc"> Alkoholfri</label>
+            </div>
           </div>
           <ul id="wine-list" class="wine-list"></ul>
           <p id="empty" class="empty" hidden></p>
