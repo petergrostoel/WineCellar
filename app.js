@@ -403,9 +403,58 @@ $("#auth-form").addEventListener("submit", async (e) => {
   }
 });
 
-$("#logout-btn").addEventListener("click", async () => {
-  if (hasPending() && !confirm("Nogle ændringer er endnu ikke gemt online og går tabt, hvis du logger ud. Log ud alligevel?")) return;
-  await db.auth.signOut();
+// Konto: vis e-mail, skift adgangskode og log ud.
+$("#account-btn").addEventListener("click", () => {
+  openSheet(`
+    <h2>Konto</h2>
+    <p class="sub">Logget ind som <strong>${escapeHtml(user?.email ?? "")}</strong></p>
+    <div class="section-label">Skift adgangskode</div>
+    <form id="password-form" class="stack" autocomplete="on">
+      <input type="email" name="username" value="${escapeHtml(user?.email ?? "")}" autocomplete="username" hidden>
+      <label>Ny adgangskode<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+      <label>Gentag ny adgangskode<input type="password" name="repeat" required minlength="8" autocomplete="new-password"></label>
+      <p id="password-msg" class="notice" hidden></p>
+      <button type="submit" class="primary" id="password-save">Skift adgangskode</button>
+    </form>
+    <div class="section-label">Log ud</div>
+    <button type="button" id="logout-btn" style="width:100%">Log ud</button>`);
+
+  const form = $("#password-form");
+  const msg = (text, kind) => {
+    const el = $("#password-msg");
+    el.hidden = false;
+    el.className = "notice " + kind;
+    el.textContent = text;
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const password = form.elements.password.value;
+    if (password !== form.elements.repeat.value) return msg("De to adgangskoder er ikke ens.", "error");
+    const btn = $("#password-save");
+    btn.disabled = true;
+    btn.textContent = "Gemmer…";
+    try {
+      const { error } = await db.auth.updateUser({ password });
+      if (error) throw error;
+      form.reset();
+      msg("Adgangskoden er skiftet. Brug den nye næste gang du logger ind.", "ok");
+    } catch (err) {
+      const m = err?.message || String(err);
+      msg(/different from the old/i.test(m) ? "Den nye adgangskode skal være forskellig fra den gamle."
+        : /at least|weak/i.test(m) ? "Adgangskoden er for svag – brug mindst 8 tegn."
+        : /fetch|network/i.test(m) ? "Ingen forbindelse – prøv igen, når du har net."
+        : m, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Skift adgangskode";
+    }
+  });
+
+  $("#logout-btn").addEventListener("click", async () => {
+    if (hasPending() && !confirm("Nogle ændringer er endnu ikke gemt online og går tabt, hvis du logger ud. Log ud alligevel?")) return;
+    closeSheet();
+    await db.auth.signOut();
+  });
 });
 
 db.auth.onAuthStateChange((event, session) => {
