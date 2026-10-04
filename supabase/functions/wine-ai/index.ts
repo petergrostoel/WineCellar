@@ -382,7 +382,8 @@ Deno.serve(async (req) => {
       case "identify": return json(await identify(input));
       case "match": return json(await match(input));
       case "pair": return json(await pair(input));
-      case "models": return json(await models());      default: return json({ error: "Ukendt handling." }, 400);
+      case "models": return json(await models());
+      default: return json({ error: "Ukendt handling." }, 400);
     }
   } catch (err) {
     if (err instanceof HttpError) return json({ error: err.message }, err.status);
