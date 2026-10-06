@@ -190,6 +190,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   "name": "vinens navn uden producent og årgang, fx 'Barolo Cannubi'",
   "producer": "producent",
   "vintage": 2016,                  // årstal eller null hvis ikke angivet (fx NV champagne)
+  "assumed_vintage": 2022,          // KUN hvis vintage er null: den årgang du gik ud fra, da du satte drikkevinduet (fx den årgang der er i handlen nu); ellers null
   "type": "en af: ${WINE_TYPES.join(", ")}", // "Orange" = hvidvin lavet med skindkontakt (orange wine / amber)
   "country": "land på dansk",
   "region": "region/appellation",
@@ -220,6 +221,8 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
       name: str(r.name) || "Ukendt vin",
       producer: str(r.producer),
       vintage: intOrNull(r.vintage),
+      // Hvilken årgang drikkevinduet er udregnet ud fra, når etiketten ingen årgang har.
+      assumedVintage: intOrNull(r.vintage) === null ? intOrNull(r.assumed_vintage) : null,
       type,
       country: str(r.country),
       region: str(r.region),

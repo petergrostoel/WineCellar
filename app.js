@@ -1115,6 +1115,9 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
   const notices = [];
   if (result && conf && conf !== "høj") notices.push(`AI'en er <strong>${escapeHtml(conf)}</strong> sikker på genkendelsen – tjek oplysningerne.`);
   if (result?.uncertain) notices.push(escapeHtml(result.uncertain));
+  if (result && draft.vintage == null && draft.assumedVintage) {
+    notices.push(`Ingen årgang på etiketten – drikkevinduet er sat ud fra årgang ${escapeHtml(draft.assumedVintage)}. Skriv årgangen, hvis du kender den, så flyttes vinduet med.`);
+  }
   if (result && result.searched === false) notices.push("Oplysningerne bygger på AI'ens egen viden (uden søgning på nettet).");
 
   const photoSrc = image?.dataUrl;
@@ -1188,7 +1191,9 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
   // ud fra den oprindelige årgang). Kun hele, gyldige årstal tæller, så
   // vinduet ikke hopper, mens man taster.
   const validYear = (v) => /^\d{4}$/.test(v) && Number(v) >= 1900 && Number(v) <= 2100;
-  let baseVintage = validYear(String(draft.vintage ?? "")) ? Number(draft.vintage) : null;
+  // Uden årgang på etiketten oplyser AI'en, hvilken årgang vinduet er udregnet ud fra.
+  const startVintage = draft.vintage ?? draft.assumedVintage;
+  let baseVintage = validYear(String(startVintage ?? "")) ? Number(startVintage) : null;
   form.elements.vintage.addEventListener("input", () => {
     const v = form.elements.vintage.value.trim();
     if (!validYear(v)) return;
