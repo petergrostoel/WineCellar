@@ -1155,6 +1155,7 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
         <label>Drik fra (år)<input name="drinkFrom" type="number" inputmode="numeric" min="1800" max="2100" value="${draft.drinkFrom ?? ""}"></label>
         <label>Drik til (år)<input name="drinkTo" type="number" inputmode="numeric" min="1800" max="2100" value="${draft.drinkTo ?? ""}"></label>
       </div>
+      <p id="window-note" class="notice" hidden></p>
       <label>Karakter og smag<textarea name="description" rows="3">${escapeHtml(draft.description)}</textarea></label>
       <label>Passer til (adskil med komma)<input name="foodPairings" value="${escapeHtml((draft.foodPairings ?? []).join(", "))}"></label>
       <div class="row">
@@ -1182,6 +1183,33 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
   };
   checkDup();
   form.addEventListener("input", checkDup);
+
+  // Ændres årgangen, flyttes drikkevinduet lige så mange år (det er udregnet
+  // ud fra den oprindelige årgang). Kun hele, gyldige årstal tæller, så
+  // vinduet ikke hopper, mens man taster.
+  const validYear = (v) => /^\d{4}$/.test(v) && Number(v) >= 1900 && Number(v) <= 2100;
+  let baseVintage = validYear(String(draft.vintage ?? "")) ? Number(draft.vintage) : null;
+  form.elements.vintage.addEventListener("input", () => {
+    const v = form.elements.vintage.value.trim();
+    if (!validYear(v)) return;
+    const year = Number(v);
+    const note = $("#window-note");
+    const { drinkFrom, drinkTo } = form.elements;
+    const hasWindow = drinkFrom.value !== "" || drinkTo.value !== "";
+    if (baseVintage === null) {
+      if (hasWindow) {
+        note.hidden = false;
+        note.textContent = `Årgang ${year} er tilføjet. Drikkevinduet blev gættet uden årgang – tjek at det passer.`;
+      }
+    } else if (year !== baseVintage && hasWindow) {
+      const delta = year - baseVintage;
+      if (drinkFrom.value !== "") drinkFrom.value = Number(drinkFrom.value) + delta;
+      if (drinkTo.value !== "") drinkTo.value = Number(drinkTo.value) + delta;
+      note.hidden = false;
+      note.textContent = `Drikkevinduet er flyttet ${Math.abs(delta)} år ${delta > 0 ? "frem" : "tilbage"}, så det passer til årgang ${year}.`;
+    }
+    baseVintage = year;
+  });
 
   $$("[data-step]", form).forEach((b) => b.addEventListener("click", () => {
     qty = Math.max(1, qty + Number(b.dataset.step));
