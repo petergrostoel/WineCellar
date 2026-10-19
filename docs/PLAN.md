@@ -67,7 +67,8 @@ iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (grati
 **wines** – én række pr. vin og årgang
 - navn, producent, årgang, type (Rød, Hvid, Rosé, Orange, Mousserende, Dessert, Hedvin), land, region, druer
 - `is_natural` (naturvin), `alcohol_free` (under 1 %), `abv` (alkoholprocent)
-- antal flasker, pris, placering, `origin` ("Kommer fra" – brugerens egen tekst)
+- antal flasker, `price` (brugerens egen pris), placering, `origin` ("Kommer fra" – brugerens egen tekst)
+- `price_dk_min`, `price_dk_max`, `price_dk_checked` – prisspænd hos danske vinbutikker (AI + Google-søgning, kun accepteret med .dk-kilder) og dato for opslaget; kan opdateres fra vinkortet
 - `description` – karakter og smag
 - `drink_from`, `drink_to` – ideelt drikkevindue (år)
 - `food_pairings` – liste af madtyper

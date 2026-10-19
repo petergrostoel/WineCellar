@@ -98,6 +98,9 @@ function toRow(w) {
     alcohol_free: !!w.alcoholFree,
     abv: w.abv ?? null,
     origin: w.origin || null,
+    price_dk_min: w.priceDkMin ?? null,
+    price_dk_max: w.priceDkMax ?? null,
+    price_dk_checked: w.priceDkChecked || null,
   };
 }
 
@@ -125,6 +128,9 @@ function fromRow(r) {
     alcoholFree: !!r.alcohol_free,
     abv: r.abv == null ? null : Number(r.abv),
     origin: r.origin ?? "",
+    priceDkMin: r.price_dk_min == null ? null : Number(r.price_dk_min),
+    priceDkMax: r.price_dk_max == null ? null : Number(r.price_dk_max),
+    priceDkChecked: r.price_dk_checked ?? null,
     added: r.created_at,
   };
 }
@@ -1060,7 +1066,7 @@ function openDetail(id) {
     ["Region", [w.region, w.country].filter(Boolean).join(", ")],
     ["Druer", w.grapes],
     ["Alkohol", w.abv != null ? `${String(w.abv).replace(".", ",")} %` : ""],
-    ["Pris", w.price ? `${w.price.toLocaleString("da-DK")} kr` : ""],
+    ["Din pris", w.price ? `${w.price.toLocaleString("da-DK")} kr` : ""],
     ["Placering", w.location],
     ["Kommer fra", w.origin],
   ].filter(([, v]) => v);
@@ -1076,6 +1082,12 @@ function openDetail(id) {
     ${w.foodPairings?.length ? `<div class="section-label">Passer til</div><div class="chips">${w.foodPairings.map((f) => `<span class="chip">${escapeHtml(f)}</span>`).join("")}</div>` : ""}
     ${facts.length ? `<div class="section-label">Fakta</div><dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join("")}</dl>` : ""}
     ${w.notes ? `<div class="section-label">Mine noter</div><p class="description">${escapeHtml(w.notes)}</p>` : ""}
+
+    <div class="section-label">Pris i danske vinbutikker</div>
+    <div class="price-line">
+      <span>${priceDkHtml(w)}</span>
+      <button type="button" class="small" data-act="price">${w.priceDkMin != null || w.priceDkMax != null ? "🔄 Opdatér pris" : "🔎 Find pris i Danmark"}</button>
+    </div>
 
     <div class="section-label">På lager</div>
     <div class="stepper">
@@ -1110,6 +1122,8 @@ function openDetail(id) {
       $('[data-act="drink"]', body).disabled = !w.quantity;
       markChanged(w.id);
       save();
+    } else if (act === "price") {
+      lookupPrice(w, e.target.closest("button"));
     } else if (act === "drink") {
       openRate(w);
     } else if (act === "edit") {
@@ -1125,6 +1139,59 @@ function openDetail(id) {
       toast("Vinen er slettet");
     }
   };
+}
+
+// ---------- Pris i danske vinbutikker ----------
+
+// "276–469 kr" (eller "289 kr"), tom streng hvis der ingen pris er.
+function priceDkText(w) {
+  const kr = (n) => Number(n).toLocaleString("da-DK");
+  const lo = w.priceDkMin ?? w.priceDkMax;
+  const hi = w.priceDkMax ?? w.priceDkMin;
+  if (lo == null) return "";
+  return lo === hi ? `${kr(lo)} kr` : `${kr(lo)}–${kr(hi)} kr`;
+}
+
+function priceDkHtml(w) {
+  const date = w.priceDkChecked ? ` <span class="muted">(${escapeHtml(formatDate(w.priceDkChecked))})</span>` : "";
+  const range = priceDkText(w);
+  if (range) return `<strong>${range}</strong>${date}`;
+  return w.priceDkChecked ? `Ikke fundet${date}` : `<span class="muted">Ikke slået op endnu</span>`;
+}
+
+async function lookupPrice(w, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Søger…";
+  try {
+    const r = await ai("price", {
+      wine: { producer: w.producer, name: w.name, vintage: w.vintage, type: w.type, region: w.region },
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    const hadPrice = w.priceDkMin != null || w.priceDkMax != null;
+    if (r.priceDk) {
+      w.priceDkMin = r.priceDk.min;
+      w.priceDkMax = r.priceDk.max;
+      w.priceDkChecked = r.priceDk.checked || today;
+      const other = r.vintageFound && w.vintage && r.vintageFound !== w.vintage ? ` (for årgang ${r.vintageFound})` : "";
+      toast(`Pris fundet: ${priceDkText(w)}${other}`);
+    } else if (hadPrice) {
+      // Intet nyt fundet: behold den gamle pris og dato.
+      toast("Ingen ny pris fundet – den tidligere pris er beholdt.");
+      return;
+    } else {
+      w.priceDkChecked = today;
+      toast("Vinen blev ikke fundet hos danske vinbutikker.");
+    }
+    markChanged(w.id);
+    save();
+    if (!$("#sheet").hidden) openDetail(w.id);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 }
 
 // ============================================================
@@ -1152,7 +1219,11 @@ async function startAdd() {
     try {
       const result = await ai("identify", { image: image.dataUrl });
       if (token !== sheetToken) return;
-      openReview({ ...result.wine, quantity: 1 }, { image, result });
+      const p = result.wine.priceDk;
+      openReview({
+        ...result.wine, quantity: 1,
+        priceDkMin: p?.min ?? null, priceDkMax: p?.max ?? null, priceDkChecked: p?.checked ?? null,
+      }, { image, result });
     } catch (err) {
       if (token !== sheetToken) return;
       openSheet(`<img class="photo small" src="${image.dataUrl}" alt="">` + errorHtml("Vinen kunne ikke genkendes", err.message) +
@@ -1224,7 +1295,14 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
       <label>Karakter og smag<textarea name="description" rows="3">${escapeHtml(draft.description)}</textarea></label>
       <label>Passer til (adskil med komma)<input name="foodPairings" value="${escapeHtml((draft.foodPairings ?? []).join(", "))}"></label>
       <div class="row">
-        <label>Pris pr. flaske (kr)<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${draft.price ?? ""}"></label>
+        <label>Pris i Danmark fra (kr)<input name="priceDkMin" type="number" inputmode="numeric" min="0" step="1" value="${draft.priceDkMin ?? ""}"></label>
+        <label>Pris i Danmark til (kr)<input name="priceDkMax" type="number" inputmode="numeric" min="0" step="1" value="${draft.priceDkMax ?? ""}"></label>
+      </div>
+      <p class="muted small-text" style="margin:-6px 0 0">${draft.priceDkChecked
+        ? `Fundet hos danske vinbutikker ${escapeHtml(formatDate(draft.priceDkChecked))}.`
+        : result ? "Ikke fundet hos danske vinbutikker." : "Kan slås op fra vinkortet med \"Find pris i Danmark\"."}</p>
+      <div class="row">
+        <label>Din pris pr. flaske (kr)<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${draft.price ?? ""}" placeholder="hvad du gav"></label>
         <label>Placering<input name="location" value="${escapeHtml(draft.location)}" placeholder="fx Reol A"></label>
       </div>
       <label>Kommer fra (valgfrit)<input name="origin" value="${escapeHtml(draft.origin)}" placeholder="fx Jubilæumsgave eller sommerferie i Spanien 2025"></label>
@@ -1304,6 +1382,11 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
         description: d.description.trim(),
         foodPairings: d.foodPairings.split(",").map((s) => s.trim()).filter(Boolean),
         price: num(d.price),
+        priceDkMin: num(d.priceDkMin),
+        priceDkMax: num(d.priceDkMax),
+        // Datoen følger med prisen; tømmes felterne, forsvinder datoen også.
+        priceDkChecked: (num(d.priceDkMin) ?? num(d.priceDkMax)) == null ? null
+          : draft.priceDkChecked ?? new Date().toISOString().slice(0, 10),
         location: d.location.trim(),
         notes: d.notes.trim(),
         origin: d.origin.trim(),

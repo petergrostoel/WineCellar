@@ -405,3 +405,7 @@ main {
 }
 .ai-warning button { flex: none; width: 36px; padding: 0; }
 @media (max-width: 932px) { .ai-warning { margin: 4px 16px 0; } }
+
+/* Pris i danske vinbutikker */
+.price-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.price-line button { flex: none; }

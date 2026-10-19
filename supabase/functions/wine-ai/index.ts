@@ -7,6 +7,7 @@
 //   identify – { image }                 → oplysninger om vinen på etiketten
 //   match    – { image, wines }          → hvilken vin i beholdningen billedet viser
 //   pair     – { dish, wines, year }     → top 5 vine til retten
+//   price    – { wine }                  → prisspænd hos danske vinbutikker (kræver søgning)
 //   usage    – {}                        → AI-forbrug (søgninger denne måned, skønnet pris i år)
 //   models   – {}                        → hvilke Gemini-modeller nøglen kan bruge
 
@@ -165,8 +166,11 @@ async function recordUsage(ctx: Ctx, model: string, searched: boolean, meta: Met
 type Part = { text: string } | { inline_data: { mime_type: string; data: string } };
 
 // Med search=true forsøges Google-søgning først (når det er slået til og der er
-// kvote tilbage). Ellers svarer modellen ud fra sin egen viden.
-async function gemini(parts: Part[], { search = false, ctx }: { search?: boolean; ctx: Ctx }) {
+// kvote tilbage). Ellers svarer modellen ud fra sin egen viden – medmindre
+// requireSearch er sat (fx prisopslag), så afvises kaldet i stedet for at gætte.
+async function gemini(parts: Part[], { search = false, requireSearch = false, ctx }:
+  { search?: boolean; requireSearch?: boolean; ctx: Ctx }) {
+  if (requireSearch) search = true;
   const usage = await usageSummary();
   ctx.usage = usage;
   if (BILLING && usage && usage.yearCostDkk >= YEAR_CAP_DKK) {
@@ -175,6 +179,11 @@ async function gemini(parts: Part[], { search = false, ctx }: { search?: boolean
   // Uden overblik over forbruget søges der ikke (så kvoten aldrig overskrides ubemærket).
   const searchAllowed = search && SEARCH_ENABLED && Date.now() > searchBlockedUntil &&
     usage !== null && usage.monthSearches < FREE_SEARCHES * SEARCH_STOP_SHARE;
+  if (requireSearch && !searchAllowed) {
+    throw new HttpError(503, SEARCH_ENABLED
+      ? "Google-søgning er sat på pause resten af måneden (den gratis kvote er næsten brugt), så prisen kan ikke slås op lige nu."
+      : "Prisopslag kræver Google-søgning, som ikke er slået til.");
+  }
 
   const deadline = Date.now() + DEADLINE_MS;
   let result: Awaited<ReturnType<typeof callGemini>> & { searched: boolean };
@@ -184,6 +193,7 @@ async function gemini(parts: Part[], { search = false, ctx }: { search?: boolean
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       if (err.status === 429) searchBlockedUntil = Date.now() + 60 * 60 * 1000;
+      if (requireSearch) throw new HttpError(503, "Google-søgningen svarede ikke. Prøv igen om lidt.");
       console.warn("Google-søgning mislykkedes – svarer uden søgning");
       result = { ...(await callGemini(parts, false, deadline)), searched: false };
     }
@@ -287,6 +297,30 @@ const intOrNull = (v: unknown) => {
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 // Alkoholprocent: accepterer "13,5" og 13.5; urimelige værdier bliver null.
+// Prisspænd hos danske butikker. Accepteres kun, hvis AI'en faktisk har søgt, og
+// mindst én kilde er en dansk side (.dk) – ellers kunne prisen være gættet.
+type Source = { url?: string; title?: string };
+function danishPrice(raw: unknown, sources: Source[], searched: boolean) {
+  const r = raw as { min?: unknown; max?: unknown } | null;
+  if (!searched || !r) return null;
+  const shops = [...new Set(sources
+    .map((s) => (s.title ?? "").trim().toLowerCase())
+    .filter((t) => /\.dk$/.test(t) || /\.dk\b/.test(t)))];
+  if (!shops.length) return null;
+  const num = (v: unknown) => {
+    const n = Number(String(v ?? "").replace(/\s|kr\.?/gi, "").replace(",", "."));
+    return Number.isFinite(n) && n >= 20 && n <= 100000 ? Math.round(n) : null;
+  };
+  let min = num(r.min), max = num(r.max);
+  if (min === null && max === null) return null;
+  min ??= max;
+  max ??= min;
+  if (min! > max!) [min, max] = [max, min];
+  return { min, max, shops: shops.slice(0, 5), checked: new Date().toISOString().slice(0, 10) };
+}
+
+const PRICE_DK_PROMPT = `"price_dk": {"min": 189, "max": 249}, // kr pr. 75 cl-flaske hos DANSKE vinbutikker (.dk), helst samme årgang. Søg efter vinen hos danske forhandlere. Kun priser du faktisk har fundet på danske sider – ellers null`;
+
 function abvOrNull(v: unknown) {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(String(v).replace(",", ".").replace("%", ""));
@@ -320,6 +354,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   "abv": 13.5,                      // alkoholprocent fra etiketten (fx "13,5% vol"), ellers dit bedste bud eller null
   "natural": true/false,            // naturvin: fx "vin nature", "natural wine", "sans sulfites ajoutés", eller producenten er kendt for naturvin
   "alcohol_free": true/false,       // alkoholfri: under 1 % alkohol, fx "0,0 %", "alkoholfri", "dealcoholised"
+  ${PRICE_DK_PROMPT}
   "confidence": "høj | middel | lav", // hvor sikker du er på genkendelsen
   "uncertain": "kort dansk note om hvad der er usikkert, eller tom streng"
 }`;
@@ -352,6 +387,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
       abv,
       natural: r.natural === true,
       alcoholFree: r.alcohol_free === true || (abv !== null && abv < 1),
+      priceDk: danishPrice(r.price_dk, sources, searched),
     },
     confidence: str(r.confidence) || "middel",
     uncertain: str(r.uncertain),
@@ -384,6 +420,30 @@ function wineList(wines: unknown): InvWine[] {
   return wines
     .filter((w) => w && typeof w.id === "string")
     .slice(0, 400);
+}
+
+// ---------- price: slå prisen op hos danske butikker for en vin i kælderen ----------
+
+async function price(input: { wine?: { producer?: string; name?: string; vintage?: number | null; type?: string; region?: string } }, ctx: Ctx) {
+  const w = input.wine ?? {};
+  const label = [str(w.producer), str(w.name), w.vintage ? String(w.vintage) : "uden årgang"].filter(Boolean).join(" ");
+  if (!str(w.name) && !str(w.producer)) throw new HttpError(400, "Vinen mangler navn.");
+  const prompt = `Find den aktuelle pris i danske vinbutikker for denne vin:
+${label} (${str(w.type)}, ${str(w.region)})
+
+Søg på danske sider (.dk) hos vinforhandlere og webshops. Brug samme årgang, hvis den findes. Findes den ikke, så angiv prisen for den nærmeste årgang af samme vin og skriv hvilken i vintage_found.
+Medtag kun priser, du faktisk har fundet på danske sider, i kroner pr. 75 cl-flaske. Er vinen slet ikke at finde i Danmark, så er price_dk null.
+
+Svar KUN med JSON: {"price_dk": {"min": 189, "max": 249} eller null, "vintage_found": 2019, "shops": ["butiksnavne"], "note": "kort dansk note, fx hvis prisen er for en anden årgang"}`;
+
+  const { text, sources, searched } = await gemini([{ text: prompt }], { requireSearch: true, ctx });
+  const r = parseJson(text);
+  const priceDk = danishPrice(r.price_dk, sources, searched);
+  return {
+    priceDk,
+    vintageFound: intOrNull(r.vintage_found),
+    note: str(r.note),
+  };
 }
 
 async function match(input: { image: unknown; wines: unknown }, ctx: Ctx) {
@@ -506,6 +566,7 @@ Deno.serve(async (req) => {
       case "identify": return withWarnings(await identify(input, ctx));
       case "match": return withWarnings(await match(input, ctx));
       case "pair": return withWarnings(await pair(input, ctx));
+      case "price": return withWarnings(await price(input, ctx));
       case "usage": {
         const usage = await usageSummary();
         return json({ usage, warnings: usageWarnings(usage) });
