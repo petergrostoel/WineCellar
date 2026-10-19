@@ -7,6 +7,7 @@
 //   identify – { image }                 → oplysninger om vinen på etiketten
 //   match    – { image, wines }          → hvilken vin i beholdningen billedet viser
 //   pair     – { dish, wines, year }     → top 5 vine til retten
+//   usage    – {}                        → AI-forbrug (søgninger denne måned, skønnet pris i år)
 //   models   – {}                        → hvilke Gemini-modeller nøglen kan bruge
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
@@ -15,7 +16,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 // GEMINI_MODEL. Den gratis kvote afviser ofte kald, når Google har travlt, så
 // der er flere at vælge imellem.
 const MODELS = (Deno.env.get("GEMINI_MODEL") ??
-  "gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-flash-lite-latest")
+  "gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-flash-lite-latest")
   .split(",").map((m) => m.trim()).filter(Boolean);
 const DEADLINE_MS = 100_000; // Supabase stopper funktionen efter 150 sek.
 // Google-søgning er ikke med i den gratis kvote. Tilknyt betalingskort til
@@ -58,24 +59,140 @@ async function requireUser(req: Request) {
   return await res.json();
 }
 
+// ---------- Forbrug: varsling og loft ----------
+//
+// Hvert kald registreres i tabellen ai_usage (alle brugere samlet, da de deler
+// nøglen). Ud fra det varsles ved 80 %, Google-søgning stoppes ved 95 % af den
+// gratis månedskvote, og AI'en lukkes helt, når årets skønnede pris når loftet.
+// Prisen er et skøn ud fra Googles prisliste; den sikre bremse er forudbetaling
+// uden automatisk genopfyldning hos Google.
+
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// Sættes til "true", når der er tilknyttet betaling til Gemini-nøglen.
+const BILLING = Deno.env.get("GEMINI_BILLING") === "true";
+const YEAR_CAP_DKK = Number(Deno.env.get("AI_YEAR_CAP_DKK") ?? 100);
+const USD_DKK = Number(Deno.env.get("USD_DKK") ?? 7); // bevidst lidt højt sat
+const FREE_SEARCHES = Number(Deno.env.get("SEARCH_FREE_PER_MONTH") ?? 5000);
+const WARN_SHARE = 0.8;
+const SEARCH_STOP_SHARE = 0.95;
+const SEARCH_PRICE_USD = 14 / 1000; // efter den gratis kvote
+
+// Googles pris for Gemini Flash i USD pr. 1 mio. tokens (tænkning tæller som output).
+function flashPrices(d = new Date()) {
+  return d.getUTCFullYear() >= 2027 ? { input: 1.5, output: 7.5 } : { input: 0.75, output: 3.75 };
+}
+
+type Usage = {
+  billing: boolean;
+  searchEnabled: boolean;
+  yearCostDkk: number;
+  capDkk: number;
+  monthSearches: number;
+  searchLimit: number;
+};
+type Ctx = { userId: string | null; action: string; usage?: Usage | null };
+
+function rest(path: string, init: RequestInit = {}) {
+  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+async function usageSummary(): Promise<Usage | null> {
+  try {
+    const res = await rest("rpc/ai_usage_summary", { method: "POST", body: "{}" });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const s = await res.json();
+    return {
+      billing: BILLING,
+      searchEnabled: SEARCH_ENABLED,
+      yearCostDkk: Math.round(Number(s.year_cost_usd) * USD_DKK * 100) / 100,
+      capDkk: YEAR_CAP_DKK,
+      monthSearches: Number(s.month_searches) || 0,
+      searchLimit: FREE_SEARCHES,
+    };
+  } catch (err) {
+    console.error("AI-forbrug kunne ikke hentes", String(err));
+    return null;
+  }
+}
+
+function usageWarnings(u: Usage | null | undefined) {
+  const w: string[] = [];
+  if (!u) return w;
+  const kr = (n: number) => n.toLocaleString("da-DK", { maximumFractionDigits: 0 });
+  if (u.billing && u.yearCostDkk >= u.capDkk * WARN_SHARE) {
+    w.push(`AI-forbruget i år er ca. ${kr(u.yearCostDkk)} kr af loftet på ${kr(u.capDkk)} kr.`);
+  }
+  if (u.searchEnabled && u.monthSearches >= u.searchLimit * WARN_SHARE) {
+    w.push(`${u.monthSearches.toLocaleString("da-DK")} af ${u.searchLimit.toLocaleString("da-DK")} gratis Google-søgninger er brugt i denne måned.` +
+      (u.monthSearches >= u.searchLimit * SEARCH_STOP_SHARE ? " Søgning er sat på pause resten af måneden." : ""));
+  }
+  return w;
+}
+
+type Meta = { promptTokenCount?: number; toolUsePromptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+
+async function recordUsage(ctx: Ctx, model: string, searched: boolean, meta: Meta | undefined, queries: number, monthBefore: number) {
+  const input = (meta?.promptTokenCount ?? 0) + (meta?.toolUsePromptTokenCount ?? 0);
+  const output = (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0);
+  const p = flashPrices();
+  const paidSearches = Math.max(0, monthBefore + queries - FREE_SEARCHES) - Math.max(0, monthBefore - FREE_SEARCHES);
+  const cost = BILLING ? (input / 1e6) * p.input + (output / 1e6) * p.output + paidSearches * SEARCH_PRICE_USD : 0;
+  try {
+    const res = await rest("ai_usage", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        user_id: ctx.userId, action: ctx.action, model, searched, search_queries: queries,
+        input_tokens: input, output_tokens: output, cost_usd: Math.round(cost * 1e6) / 1e6,
+      }),
+    });
+    if (!res.ok) console.error("AI-forbrug kunne ikke gemmes", res.status, await res.text());
+  } catch (err) {
+    console.error("AI-forbrug kunne ikke gemmes", String(err));
+  }
+}
+
 // ---------- Gemini ----------
 
 type Part = { text: string } | { inline_data: { mime_type: string; data: string } };
 
-// Med search=true forsøges Google-søgning først. Er søgning ikke med i kvoten
-// (gratis udgave), svarer modellen i stedet ud fra sin egen viden.
-async function gemini(parts: Part[], { search = false } = {}) {
+// Med search=true forsøges Google-søgning først (når det er slået til og der er
+// kvote tilbage). Ellers svarer modellen ud fra sin egen viden.
+async function gemini(parts: Part[], { search = false, ctx }: { search?: boolean; ctx: Ctx }) {
+  const usage = await usageSummary();
+  ctx.usage = usage;
+  if (BILLING && usage && usage.yearCostDkk >= YEAR_CAP_DKK) {
+    throw new HttpError(402, `Årsloftet for AI på ${YEAR_CAP_DKK} kr er nået, så foto-genkendelse og madforslag er lukket til 1. januar. Resten af appen virker som normalt.`);
+  }
+  // Uden overblik over forbruget søges der ikke (så kvoten aldrig overskrides ubemærket).
+  const searchAllowed = search && SEARCH_ENABLED && Date.now() > searchBlockedUntil &&
+    usage !== null && usage.monthSearches < FREE_SEARCHES * SEARCH_STOP_SHARE;
+
   const deadline = Date.now() + DEADLINE_MS;
-  if (search && SEARCH_ENABLED && Date.now() > searchBlockedUntil) {
+  let result: Awaited<ReturnType<typeof callGemini>> & { searched: boolean };
+  if (searchAllowed) {
     try {
-      return { ...(await callGemini(parts, true, deadline)), searched: true };
+      result = { ...(await callGemini(parts, true, deadline)), searched: true };
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       if (err.status === 429) searchBlockedUntil = Date.now() + 60 * 60 * 1000;
       console.warn("Google-søgning mislykkedes – svarer uden søgning");
+      result = { ...(await callGemini(parts, false, deadline)), searched: false };
     }
+  } else {
+    result = { ...(await callGemini(parts, false, deadline)), searched: false };
   }
-  return { ...(await callGemini(parts, false, deadline)), searched: false };
+  await recordUsage(ctx, result.model, result.searched, result.meta, result.queries, usage?.monthSearches ?? 0);
+  if (usage) usage.monthSearches += result.queries;
+  return result;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -125,7 +242,8 @@ async function callGemini(parts: Part[], search: boolean, deadline: number) {
           .map((c: { web?: { uri?: string; title?: string } }) => c.web)
           .filter((w: unknown) => w)
           .map((w: { uri?: string; title?: string }) => ({ url: w.uri, title: w.title }));
-        return { text, sources, model };
+        const queries = (cand?.groundingMetadata?.webSearchQueries ?? []).length;
+        return { text, sources, model, meta: data.usageMetadata as Meta | undefined, queries };
       }
       const detail = `${model}: ${res.status} ${(await res.text()).slice(0, 200)}`;
       console.error("Gemini-fejl", detail);
@@ -177,7 +295,7 @@ function abvOrNull(v: unknown) {
 
 // ---------- identify: genkend en ny vin ----------
 
-async function identify(input: { image: unknown }) {
+async function identify(input: { image: unknown }, ctx: Ctx) {
   const year = new Date().getFullYear();
   const prompt = `Du er en erfaren sommelier. Billedet viser en vinflaske eller en vinetiket.
 1. Aflæs etiketten nøjagtigt: navn, producent, årgang, appellation/region og land.
@@ -206,7 +324,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
   "uncertain": "kort dansk note om hvad der er usikkert, eller tom streng"
 }`;
 
-  const { text, sources, model, searched } = await gemini([imagePart(input.image), { text: prompt }], { search: true });
+  const { text, sources, model, searched } = await gemini([imagePart(input.image), { text: prompt }], { search: true, ctx });
   const r = parseJson(text);
   if (r.is_wine === false) throw new HttpError(422, "Jeg kan ikke se en vinetiket på billedet. Prøv igen tættere på etiketten.");
 
@@ -268,7 +386,7 @@ function wineList(wines: unknown): InvWine[] {
     .slice(0, 400);
 }
 
-async function match(input: { image: unknown; wines: unknown }) {
+async function match(input: { image: unknown; wines: unknown }, ctx: Ctx) {
   const wines = wineList(input.wines);
   if (!wines.length) throw new HttpError(422, "Du har ingen vine på lager.");
   const lines = wines
@@ -284,7 +402,7 @@ Svar KUN med JSON:
 {"id": "id fra listen eller null hvis ingen passer", "confidence": "høj | middel | lav",
  "label": "hvad du kan læse på etiketten, kort", "alternatives": ["op til 2 andre id'er der kunne passe"]}`;
 
-  const { text } = await gemini([imagePart(input.image), { text: prompt }]);
+  const { text } = await gemini([imagePart(input.image), { text: prompt }], { ctx });
   const r = parseJson(text);
   const ids = new Set(wines.map((w) => w.id));
   return {
@@ -310,7 +428,7 @@ function urgency(w: InvWine, year: number): { score: number | null; text: string
   return { score: 2, text: to ? `I vinduet til ${to}` : "I vinduet" };
 }
 
-async function pair(input: { dish: unknown; wines: unknown; year?: unknown }) {
+async function pair(input: { dish: unknown; wines: unknown; year?: unknown }, ctx: Ctx) {
   const dish = str(input.dish);
   if (!dish) throw new HttpError(400, "Skriv hvilken ret du skal have.");
   const year = intOrNull(input.year) ?? new Date().getFullYear();
@@ -329,7 +447,7 @@ ${lines}
 
 Svar KUN med JSON: {"scores": [{"id": "...", "match": 0-10, "reason": "..."}]} – medtag alle vine.`;
 
-  const { text } = await gemini([{ text: prompt }]);
+  const { text } = await gemini([{ text: prompt }], { ctx });
   const r = parseJson(text);
   const scores = new Map<string, { match: number; reason: string }>();
   for (const s of Array.isArray(r.scores) ? r.scores : []) {
@@ -380,11 +498,18 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Kun POST." }, 405);
   try {
     const input = await req.json().catch(() => ({}));
-    await requireUser(req);
+    const user = await requireUser(req);
+    const ctx: Ctx = { userId: user?.id ?? null, action: String(input.action ?? "") };
+    // Advarsler om forbrug sendes med i hvert AI-svar, så appen kan vise dem.
+    const withWarnings = (result: Record<string, unknown>) => json({ ...result, warnings: usageWarnings(ctx.usage) });
     switch (input.action) {
-      case "identify": return json(await identify(input));
-      case "match": return json(await match(input));
-      case "pair": return json(await pair(input));
+      case "identify": return withWarnings(await identify(input, ctx));
+      case "match": return withWarnings(await match(input, ctx));
+      case "pair": return withWarnings(await pair(input, ctx));
+      case "usage": {
+        const usage = await usageSummary();
+        return json({ usage, warnings: usageWarnings(usage) });
+      }
       case "models": return json(await models());
       default: return json({ error: "Ukendt handling." }, 400);
     }

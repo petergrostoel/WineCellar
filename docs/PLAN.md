@@ -77,6 +77,10 @@ iPhone (PWA)  ──►  Supabase Edge Function  ──►  Google Gemini (grati
 **tastings** – én række pr. drukket flaske
 - vin, dato, stjerner (1–5), egne noter
 
+**ai_usage** – én række pr. AI-kald (alle brugere samlet): model, søgninger, tokens, skønnet pris.
+Bruges til varsling (80 %), søgepause (95 % af 5.000 gratis søgninger/måned) og årsloft (100 kr).
+Kun AI-funktionen kan læse og skrive tabellen.
+
 ## Byggetrin
 
 1. ✅ Grundapp, PWA, GitHub Pages, login og online-lagring

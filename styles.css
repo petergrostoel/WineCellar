@@ -396,3 +396,12 @@ main {
 .checks { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; flex: 1; }
 .check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: .95rem; }
 .check input { width: auto; margin: 0; }
+
+/* Advarsel om AI-forbrug */
+.ai-warning {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  max-width: 900px; margin: 4px auto 0; padding: 8px 8px 8px 14px;
+  background: var(--accent-soft); color: var(--text); border-radius: 10px; font-size: .9rem;
+}
+.ai-warning button { flex: none; width: 36px; padding: 0; }
+@media (max-width: 932px) { .ai-warning { margin: 4px 16px 0; } }

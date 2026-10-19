@@ -226,7 +226,61 @@ async function ai(action, body) {
     } catch {}
     throw new Error(msg);
   }
+  showAiWarnings(data?.warnings);
   return data;
+}
+
+// ---------- Advarsler om AI-forbrug ----------
+
+const AIWARN_KEY = "wine-cellar.aiwarn.v1"; // { text, dismissed }
+
+function showAiWarnings(warnings) {
+  if (!Array.isArray(warnings)) return;
+  const text = warnings.join(" ");
+  const saved = readJson(AIWARN_KEY, {});
+  // En lukket advarsel vises igen, når teksten ændrer sig (fx flere søgninger brugt).
+  const state = { text, dismissed: saved.text === text && saved.dismissed };
+  try {
+    localStorage.setItem(AIWARN_KEY, JSON.stringify(state));
+  } catch {}
+  renderAiWarning();
+}
+
+function renderAiWarning() {
+  const { text, dismissed } = readJson(AIWARN_KEY, {});
+  const el = $("#ai-warning");
+  el.hidden = !text || dismissed;
+  if (!el.hidden) {
+    el.innerHTML = `<span>⚠ ${escapeHtml(text)}</span><button type="button" class="small" aria-label="Luk">✕</button>`;
+    $("button", el).onclick = () => {
+      try {
+        localStorage.setItem(AIWARN_KEY, JSON.stringify({ text, dismissed: true }));
+      } catch {}
+      el.hidden = true;
+    };
+  }
+}
+
+async function loadUsage() {
+  const box = $("#usage-box");
+  try {
+    const { usage, warnings } = await ai("usage", {});
+    if (!usage) throw new Error("Forbruget kunne ikke hentes lige nu.");
+    const kr = (n) => n.toLocaleString("da-DK", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const month = new Date().toLocaleDateString("da-DK", { month: "long" });
+    const lines = [
+      usage.billing
+        ? `Skønnet forbrug i år: <strong>${kr(usage.yearCostDkk)} kr</strong> af loftet på ${kr(usage.capDkk)} kr.`
+        : "AI'en kører på Googles gratis udgave – der betales ikke noget.",
+      usage.searchEnabled
+        ? `Google-søgninger i ${month}: <strong>${usage.monthSearches.toLocaleString("da-DK")}</strong> af ${usage.searchLimit.toLocaleString("da-DK")} gratis.`
+        : "Google-søgning er slået fra.",
+    ];
+    box.innerHTML = lines.map((l) => `<div>${l}</div>`).join("") +
+      (warnings?.length ? `<div class="notice" style="margin-top:8px">${warnings.map(escapeHtml).join("<br>")}</div>` : "");
+  } catch (err) {
+    box.textContent = err.message;
+  }
 }
 
 // Gør billedet mindre (hurtigere upload og AI) og returnér JPEG.
@@ -383,6 +437,7 @@ function onSignedIn(newUser) {
   user = newUser;
   persist();
   showView(true);
+  renderAiWarning();
   render();
   sync();
 }
@@ -430,8 +485,12 @@ $("#account-btn").addEventListener("click", () => {
       <p id="password-msg" class="notice" hidden></p>
       <button type="submit" class="primary" id="password-save">Skift adgangskode</button>
     </form>
+    <div class="section-label">AI-forbrug (alle brugere samlet)</div>
+    <div id="usage-box" class="muted">Henter…</div>
     <div class="section-label">Log ud</div>
     <button type="button" id="logout-btn" style="width:100%">Log ud</button>`);
+
+  loadUsage();
 
   const form = $("#password-form");
   const msg = (text, kind) => {
