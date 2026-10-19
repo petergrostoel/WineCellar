@@ -168,8 +168,8 @@ type Part = { text: string } | { inline_data: { mime_type: string; data: string 
 // Med search=true forsøges Google-søgning først (når det er slået til og der er
 // kvote tilbage). Ellers svarer modellen ud fra sin egen viden – medmindre
 // requireSearch er sat (fx prisopslag), så afvises kaldet i stedet for at gætte.
-async function gemini(parts: Part[], { search = false, requireSearch = false, ctx }:
-  { search?: boolean; requireSearch?: boolean; ctx: Ctx }) {
+async function gemini(parts: Part[], { search = false, requireSearch = false, models = MODELS, thinking, ctx }:
+  { search?: boolean; requireSearch?: boolean; models?: string[]; thinking?: "low" | "high"; ctx: Ctx }) {
   if (requireSearch) search = true;
   const usage = await usageSummary();
   ctx.usage = usage;
@@ -189,16 +189,16 @@ async function gemini(parts: Part[], { search = false, requireSearch = false, ct
   let result: Awaited<ReturnType<typeof callGemini>> & { searched: boolean };
   if (searchAllowed) {
     try {
-      result = { ...(await callGemini(parts, true, deadline)), searched: true };
+      result = { ...(await callGemini(parts, true, deadline, models, thinking)), searched: true };
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       if (err.status === 429) searchBlockedUntil = Date.now() + 60 * 60 * 1000;
-      if (requireSearch) throw new HttpError(503, "Google-søgningen svarede ikke. Prøv igen om lidt.");
+      if (requireSearch) throw err;
       console.warn("Google-søgning mislykkedes – svarer uden søgning");
-      result = { ...(await callGemini(parts, false, deadline)), searched: false };
+      result = { ...(await callGemini(parts, false, deadline, models, thinking)), searched: false };
     }
   } else {
-    result = { ...(await callGemini(parts, false, deadline)), searched: false };
+    result = { ...(await callGemini(parts, false, deadline, models, thinking)), searched: false };
   }
   await recordUsage(ctx, result.model, result.searched, result.meta, result.queries, usage?.monthSearches ?? 0);
   if (usage) usage.monthSearches += result.queries;
@@ -207,17 +207,17 @@ async function gemini(parts: Part[], { search = false, requireSearch = false, ct
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function callGemini(parts: Part[], search: boolean, deadline: number) {
+async function callGemini(parts: Part[], search: boolean, deadline: number, models: string[] = MODELS, thinking?: "low" | "high") {
   if (!GEMINI_API_KEY) throw new HttpError(500, "GEMINI_API_KEY mangler i Supabase.");
   const body = JSON.stringify({
     contents: [{ role: "user", parts }],
-    generationConfig: { temperature: 0.2 },
+    generationConfig: { temperature: 0.2, ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}) },
     ...(search ? { tools: [{ google_search: {} }] } : {}),
   });
 
   const statuses: number[] = [];
   // Op til to runder: modeller der er overbelastede (503/500) prøves igen.
-  let candidates = [...MODELS];
+  let candidates = [...models];
   for (let round = 0; round < 2 && candidates.length; round++) {
     if (round > 0) await sleep(2500);
     const retry: string[] = [];
@@ -230,7 +230,8 @@ async function callGemini(parts: Part[], search: boolean, deadline: number) {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
           body,
-          signal: AbortSignal.timeout(Math.min(45_000, left)),
+          // Søgninger må tage længere tid (de besøger mange sider).
+          signal: AbortSignal.timeout(Math.min(search ? 90_000 : 45_000, left)),
         });
       } catch (err) {
         console.error("Gemini-timeout", model, String(err));
@@ -266,8 +267,11 @@ async function callGemini(parts: Part[], search: boolean, deadline: number) {
   if (statuses.length && statuses.every((s) => s === 429)) {
     throw new HttpError(429, "Den gratis AI-kvote er brugt op for nu. Prøv igen senere.");
   }
+  if (statuses.length && statuses.every((s) => s === 504)) {
+    throw new HttpError(504, "AI'en brugte for lang tid på at svare. Prøv igen om lidt.");
+  }
   if (statuses.some((s) => s === 503 || s === 500 || s === 504)) {
-    throw new HttpError(503, "Googles gratis AI er overbelastet lige nu. Prøv igen om et øjeblik.");
+    throw new HttpError(503, "Googles AI er overbelastet lige nu. Prøv igen om et øjeblik.");
   }
   throw new HttpError(502, "AI'en svarede ikke. Prøv igen om lidt.");
 }
@@ -296,16 +300,21 @@ const intOrNull = (v: unknown) => {
 };
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-// Alkoholprocent: accepterer "13,5" og 13.5; urimelige værdier bliver null.
 // Prisspænd hos danske butikker. Accepteres kun, hvis AI'en faktisk har søgt, og
-// mindst én kilde er en dansk side (.dk) – ellers kunne prisen være gættet.
+// mindst én kilde er en dansk vinbutik – ellers kunne prisen være gættet.
+// Danske vinbutikker kendes på .dk – eller står på listen herunder, fordi deres
+// webshop har et udenlandsk domæne.
+const DANISH_SHOPS_OTHER_DOMAINS = ["philipsonwine.com"];
 type Source = { url?: string; title?: string };
+function isDanishShop(title: string) {
+  return /\.dk\b/.test(title) || DANISH_SHOPS_OTHER_DOMAINS.some((d) => title.includes(d));
+}
 function danishPrice(raw: unknown, sources: Source[], searched: boolean) {
   const r = raw as { min?: unknown; max?: unknown } | null;
   if (!searched || !r) return null;
   const shops = [...new Set(sources
     .map((s) => (s.title ?? "").trim().toLowerCase())
-    .filter((t) => /\.dk$/.test(t) || /\.dk\b/.test(t)))];
+    .filter(isDanishShop))];
   if (!shops.length) return null;
   const num = (v: unknown) => {
     const n = Number(String(v ?? "").replace(/\s|kr\.?/gi, "").replace(",", "."));
@@ -319,8 +328,55 @@ function danishPrice(raw: unknown, sources: Source[], searched: boolean) {
   return { min, max, shops: shops.slice(0, 5), checked: new Date().toISOString().slice(0, 10) };
 }
 
-const PRICE_DK_PROMPT = `"price_dk": {"min": 189, "max": 249}, // kr pr. 75 cl-flaske hos DANSKE vinbutikker (.dk), helst samme årgang. Søg efter vinen hos danske forhandlere. Kun priser du faktisk har fundet på danske sider – ellers null`;
+const PRICE_DK_PROMPT = `"offers": [{"shop": "butik", "url": "link til produktsiden", "price": 229, "vintage": 2019}], // priser i kr pr. 75 cl-flaske hos DANSKE vinbutikker, helst samme årgang. Søg efter vinen + "pris" hos danske forhandlere. Kun priser du har fundet i søgningen, med link til produktsiden – ellers []`;
 
+// Prisen godkendes kun, hvis butikkens egen side findes, er dansk, nævner vinen
+// og viser prisen. Så kan AI'en ikke finde på en pris (Google sender ikke altid
+// sine søgekilder med tilbage, så de kan ikke bruges som bevis).
+type Offer = { shop?: unknown; url?: unknown; price?: unknown; vintage?: unknown };
+async function verifyDanishOffers(offers: unknown, wine: { producer?: string; name?: string }) {
+  if (!Array.isArray(offers)) return null;
+  const words = [str(wine.producer), str(wine.name)].join(" ").toLowerCase()
+    .split(/[^a-zà-ÿ0-9]+/).filter((t) => t.length > 3);
+  const checks = (offers as Offer[]).slice(0, 6).map(async (o) => {
+    const p = Number(String(o.price ?? "").replace(/\s|kr\.?/gi, "").replace(",", "."));
+    let url: URL;
+    try {
+      url = new URL(String(o.url ?? ""));
+    } catch {
+      return null;
+    }
+    if (!(p >= 20 && p <= 100000) || !isDanishShop(url.hostname)) return null;
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (WineCellar prischeck)", "Accept-Language": "da-DK,da" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const page = (await res.text()).toLowerCase();
+      const int = Math.floor(p);
+      const dec = String(Math.round((p - int) * 100)).padStart(2, "0");
+      const priceShown = [`${int},${dec}`, `${int}.${dec}`, ...(dec === "00" ? [`${int},-`, `${int} kr`, `${int}kr`] : [])]
+        .some((s) => page.includes(s));
+      const nameShown = words.length === 0 || words.filter((t) => page.includes(t)).length >= Math.min(2, words.length);
+      if (!priceShown || !nameShown) return null;
+      return { price: Math.round(p), shop: url.hostname.replace(/^www\./, ""), vintage: intOrNull(o.vintage) };
+    } catch {
+      return null;
+    }
+  });
+  const ok = (await Promise.all(checks)).filter((x) => x !== null);
+  if (!ok.length) return null;
+  const prices = ok.map((x) => x!.price);
+  return {
+    min: Math.min(...prices),
+    max: Math.max(...prices),
+    shops: [...new Set(ok.map((x) => x!.shop))],
+    checked: new Date().toISOString().slice(0, 10),
+  };
+}
+
+// Alkoholprocent: accepterer "13,5" og 13.5; urimelige værdier bliver null.
 function abvOrNull(v: unknown) {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(String(v).replace(",", ".").replace("%", ""));
@@ -387,7 +443,7 @@ Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter
       abv,
       natural: r.natural === true,
       alcoholFree: r.alcohol_free === true || (abv !== null && abv < 1),
-      priceDk: danishPrice(r.price_dk, sources, searched),
+      priceDk: (await verifyDanishOffers(r.offers, { producer: str(r.producer), name: str(r.name) })) ?? danishPrice(r.price_dk, sources, searched),
     },
     confidence: str(r.confidence) || "middel",
     uncertain: str(r.uncertain),
@@ -428,17 +484,33 @@ async function price(input: { wine?: { producer?: string; name?: string; vintage
   const w = input.wine ?? {};
   const label = [str(w.producer), str(w.name), w.vintage ? String(w.vintage) : "uden årgang"].filter(Boolean).join(" ");
   if (!str(w.name) && !str(w.producer)) throw new HttpError(400, "Vinen mangler navn.");
-  const prompt = `Find den aktuelle pris i danske vinbutikker for denne vin:
+  const today = new Date().toLocaleDateString("da-DK", { day: "numeric", month: "long", year: "numeric" });
+  const prompt = (retry: boolean) => `I dag er det ${today}. Find den aktuelle pris i danske vinbutikker for denne vin:
 ${label} (${str(w.type)}, ${str(w.region)})
 
-Søg på danske sider (.dk) hos vinforhandlere og webshops. Brug samme årgang, hvis den findes. Findes den ikke, så angiv prisen for den nærmeste årgang af samme vin og skriv hvilken i vintage_found.
-Medtag kun priser, du faktisk har fundet på danske sider, i kroner pr. 75 cl-flaske. Er vinen slet ikke at finde i Danmark, så er price_dk null.
+Du kender IKKE de aktuelle priser – de ændrer sig hele tiden. Du SKAL bruge Google-søgning, før du svarer, fx:
+- "${label} pris"
+- "${[str(w.producer), str(w.name)].filter(Boolean).join(" ")} vin køb"
+Svar aldrig ud fra hukommelsen.${retry ? "\nPriserne i dit forrige svar stod ikke på de sider, du linkede til. Søg igen og brug kun priser, der står på produktsiden." : ""}
 
-Svar KUN med JSON: {"price_dk": {"min": 189, "max": 249} eller null, "vintage_found": 2019, "shops": ["butiksnavne"], "note": "kort dansk note, fx hvis prisen er for en anden årgang"}`;
+Kig efter danske vinforhandlere og webshops. Brug samme årgang, hvis den findes. Findes den ikke, så angiv prisen for den nærmeste årgang af samme vin og skriv hvilken i vintage_found.
+Medtag kun priser, du har fundet i søgningen, i kroner pr. 75 cl-flaske (ikke tilbud ved køb af flere). Er vinen slet ikke at finde i Danmark, så er price_dk null.
 
-  const { text, sources, searched } = await gemini([{ text: prompt }], { requireSearch: true, ctx });
-  const r = parseJson(text);
-  const priceDk = danishPrice(r.price_dk, sources, searched);
+For hver pris skal du angive butikken og linket til produktsiden, som du fandt i søgningen.
+
+Svar KUN med JSON: {"offers": [{"shop": "butik", "url": "link til produktsiden", "price": 229, "vintage": 2019}], "price_dk": {"min": 189, "max": 249} eller null, "vintage_found": 2019, "note": "kort dansk note, fx hvis prisen er for en anden årgang"}`;
+
+  // Priserne tjekkes på butikkernes egne sider. Passede ingen af de foreslåede
+  // priser, spørges der én gang mere.
+  const ask = async (retry: boolean) => {
+    // Lav tænkning: opgaven er enkel, og så bliver opslaget hurtigere og billigere.
+    const g = await gemini([{ text: prompt(retry) }], { requireSearch: true, thinking: "low", ctx });
+    const r = parseJson(g.text);
+    const priceDk = (await verifyDanishOffers(r.offers, w)) ?? danishPrice(r.price_dk, g.sources, g.searched);
+    return { r, priceDk };
+  };
+  let { r, priceDk } = await ask(false);
+  if (!priceDk && Array.isArray(r.offers) && r.offers.length) ({ r, priceDk } = await ask(true));
   return {
     priceDk,
     vintageFound: intOrNull(r.vintage_found),
