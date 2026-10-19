@@ -200,8 +200,11 @@ async function gemini(parts: Part[], { search = false, requireSearch = false, mo
   } else {
     result = { ...(await callGemini(parts, false, deadline, models, thinking)), searched: false };
   }
-  await recordUsage(ctx, result.model, result.searched, result.meta, result.queries, usage?.monthSearches ?? 0);
-  if (usage) usage.monthSearches += result.queries;
+  // Google oplyser ikke altid, hvor mange søgninger der blev lavet. Et kald med
+  // søgning tælles derfor som mindst én, så kvoten hellere tælles for højt end for lavt.
+  const searches = result.searched ? Math.max(result.queries, 1) : 0;
+  await recordUsage(ctx, result.model, result.searched, result.meta, searches, usage?.monthSearches ?? 0);
+  if (usage) usage.monthSearches += searches;
   return result;
 }
 
