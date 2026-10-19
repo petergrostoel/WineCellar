@@ -97,6 +97,7 @@ function toRow(w) {
     is_natural: !!w.natural,
     alcohol_free: !!w.alcoholFree,
     abv: w.abv ?? null,
+    origin: w.origin || null,
   };
 }
 
@@ -123,6 +124,7 @@ function fromRow(r) {
     natural: !!r.is_natural,
     alcoholFree: !!r.alcohol_free,
     abv: r.abv == null ? null : Number(r.abv),
+    origin: r.origin ?? "",
     added: r.created_at,
   };
 }
@@ -598,7 +600,7 @@ function renderCellar() {
     .filter((w) => !type || w.type === type)
     .filter((w) => !$("#filter-natural").checked || w.natural)
     .filter((w) => !$("#filter-nolc").checked || w.alcoholFree)
-    .filter((w) => !q || [w.name, w.producer, w.country, w.region, w.grapes, w.location, w.description]
+    .filter((w) => !q || [w.name, w.producer, w.country, w.region, w.grapes, w.location, w.description, w.origin]
       .some((f) => (f || "").toLowerCase().includes(q)))
     .sort((a, b) => {
       if (sort === "urgency") return urgencyRank(a) - urgencyRank(b);
@@ -1001,6 +1003,7 @@ function openDetail(id) {
     ["Alkohol", w.abv != null ? `${String(w.abv).replace(".", ",")} %` : ""],
     ["Pris", w.price ? `${w.price.toLocaleString("da-DK")} kr` : ""],
     ["Placering", w.location],
+    ["Kommer fra", w.origin],
   ].filter(([, v]) => v);
 
   openSheet(`
@@ -1165,6 +1168,7 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
         <label>Pris pr. flaske (kr)<input name="price" type="number" inputmode="decimal" min="0" step="0.01" value="${draft.price ?? ""}"></label>
         <label>Placering<input name="location" value="${escapeHtml(draft.location)}" placeholder="fx Reol A"></label>
       </div>
+      <label>Kommer fra (valgfrit)<input name="origin" value="${escapeHtml(draft.origin)}" placeholder="fx Jubilæumsgave eller sommerferie i Spanien 2025"></label>
       <label>Mine noter<textarea name="notes" rows="2">${escapeHtml(draft.notes)}</textarea></label>
       <p id="review-error" class="notice error" hidden></p>
       <div class="actions">
@@ -1243,6 +1247,7 @@ function openReview(draft, { image = null, result = null, editing = false } = {}
         price: num(d.price),
         location: d.location.trim(),
         notes: d.notes.trim(),
+        origin: d.origin.trim(),
         abv: num(d.abv?.replace(",", ".")),
         natural: !!d.natural,
         // Under 1 % alkohol er altid alkoholfri.
