@@ -12,11 +12,11 @@
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-// Modellerne prøves i rækkefølge, til én svarer. Kan overstyres med hemmeligheden
-// GEMINI_MODEL. Den gratis kvote afviser ofte kald, når Google har travlt, så
-// der er flere at vælge imellem.
+// Modellerne prøves i rækkefølge, til én svarer – bedste model først (betalt
+// udgave), de øvrige som reserve, hvis Google har travlt. Kan overstyres med
+// hemmeligheden GEMINI_MODEL.
 const MODELS = (Deno.env.get("GEMINI_MODEL") ??
-  "gemini-flash-latest,gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-flash-lite-latest")
+  "gemini-3.8-flash,gemini-flash-latest,gemini-3.6-flash,gemini-flash-lite-latest")
   .split(",").map((m) => m.trim()).filter(Boolean);
 const DEADLINE_MS = 100_000; // Supabase stopper funktionen efter 150 sek.
 // Google-søgning er ikke med i den gratis kvote. Tilknyt betalingskort til
@@ -299,7 +299,7 @@ async function identify(input: { image: unknown }, ctx: Ctx) {
   const year = new Date().getFullYear();
   const prompt = `Du er en erfaren sommelier. Billedet viser en vinflaske eller en vinetiket.
 1. Aflæs etiketten nøjagtigt: navn, producent, årgang, appellation/region og land.
-2. Find druer, smagsprofil og hvornår netop denne vin og årgang bør drikkes. Søg på nettet (producentens side, anmeldelser, vinguider), hvis du har adgang til søgning – ellers brug din egen viden om producenten, området og årgangen.
+2. Find druer, smagsprofil og hvornår netop denne vin og årgang bør drikkes. Har du Google-søgning, SKAL du søge mindst én gang efter producent + vin + årgang (producentens side, anmeldelser, vinguider) og bygge drikkevinduet på det, du finder. Uden søgning: brug din egen viden om producenten, området og årgangen.
 3. Vurdér det ideelle drikkevindue for netop denne årgang som årstal. Det er nu år ${year}.
 
 Svar KUN med ét JSON-objekt, uden forklaring før eller efter, med disse felter:
